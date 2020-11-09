@@ -1,0 +1,10 @@
+yacs
+open3d==0.9
+trimesh
+matplotlib
+nltk
+ordered-set
+xlrd
+pygraphviz
+gensim
+pytorch-lightning==0.7.1
