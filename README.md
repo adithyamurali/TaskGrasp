@@ -1,5 +1,5 @@
 ## Same Object, Different Grasps: Data and Semantic Knowledge for Task-Oriented Grasping
-#### In CoRL 2020 [[arXiv]](http://weiyuliu.com/data/Same_Object_Different_Grasps.pdf) [[Robot Video]](https://youtu.be/ByHVc-sPmd8) [[pdf]](http://weiyuliu.com/data/Same_Object_Different_Grasps.pdf)
+#### In CoRL 2020 [[arXiv]](https://arxiv.org/abs/2011.06431) [[Robot Video]](https://youtu.be/ByHVc-sPmd8) [[pdf]](https://arxiv.org/pdf/2011.06431.pdf)
 
 [Adithya Murali](http://adithyamurali.com), [Weiyu Liu](http://weiyuliu.com/), [Kenneth Marino](http://kennethmarino.com/), [Sonia Chernova](https://www.cc.gatech.edu/~chernova/), [Abhinav Gupta](http://www.cs.cmu.edu/~abhinavg)
 
@@ -7,7 +7,7 @@ Carnegie Mellon University Robotics Institute, Georgia Institute of Technology, 
 
 <!-- <img src='images/hcp.png' width="400"> <img src="https://thumbs.gfycat.com/SafeNeighboringHydatidtapeworm-size_restricted.gif" width="400"> -->
 
-This is a pytorch-based implementation for our [CoRL 2020 paper on task-oriented grasping](http://weiyuliu.com/data/Same_Object_Different_Grasps.pdf). If you find this work useful in your research, please cite:
+This is a pytorch-based implementation for our [CoRL 2020 paper on task-oriented grasping](https://arxiv.org/abs/2011.06431). If you find this work useful in your research, please cite:
 
 	@inproceedings{murali2020taskgrasp,
 	  title={Same Object, Different Grasps: Data and Semantic Knowledge for Task-Oriented Grasping},
@@ -57,6 +57,8 @@ unzip ~/Downloads/data.zip -d ./
 rm ~/Downloads/data.zip
 ```
 To run any of the demo scripts explained below, do the same with the [pretrained models (589 MB)](https://drive.google.com/file/d/1fasm-8MV6zBjdnbAHLbU8_8TZOkeABkR/view?usp=sharing) and [config files (10 KB)](https://drive.google.com/file/d/1vJfkaCCLJmvT8i5OB-qx_pOojgx2ouPf/view?usp=sharing) and put them in the `checkpoints` and `cfg` folder respectively.
+
+**Coming Soon:** We are trying to release mesh models for the objects as well.
 
 ## Usage
 
