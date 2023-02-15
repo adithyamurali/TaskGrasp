@@ -1,6 +1,6 @@
 *.png
 *.yml
 *.pyc
-runs/
-data/
-checkpoints/
+./runs/
+./data/
+./checkpoints/
