@@ -248,7 +248,7 @@ class BaselineData(data.Dataset):
         self._all_object_instances = list(set(all_object_instances))
         self._len = len(self._data)
         # TODO: changed this for debugging
-        self._len = 20
+        self._len = 4
         for i in range(self._len//2):
             self._data[i], self._data[good_ind[i]] = self._data[good_ind[i]], self._data[i]
         print('Loading files from {} took {}s; overall dataset size {}, proportion successful grasps {:.2f}'.format(
@@ -273,6 +273,7 @@ class BaselineData(data.Dataset):
         return weights_data
 
     def __getitem__(self, idx):
+        #print("accessing", idx)
         obj, grasp_id, task, label = self._data[idx]
         obj_data = self._obj_data[obj]
         if self._observation_type == 'point_cloud':
@@ -286,6 +287,7 @@ class BaselineData(data.Dataset):
             camera_info = [o[2] for o in obj_data]
 
         grasp = self._grasps[grasp_id]
+        #print("acc2", grasp_id, grasp)
         #task_id = self._tasks.index(task)
         #class_id = self._object_classes.index(obj_class)
         #instance_id = self._all_object_instances.index(obj)
@@ -320,6 +322,7 @@ class BaselineData(data.Dataset):
 
         #return images, world_coordinates, grasp, task_id, class_id, instance_id, label
         if self._observation_type == 'point_cloud':
+            #print("returning", grasp_pc)
             return pc, grasp_pc, label
         else:
             return images, depth, camera_info, grasp_pc, label

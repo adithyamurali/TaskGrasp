@@ -121,7 +121,8 @@ class AttentionLayers(nn.Module):
             )
             new_query_tokens = self.cross_attn_layers[i](
                 query=query_tokens, value=point_tokens,
-                query_pos=None, value_pos=point_pos
+                #query_pos=None, value_pos=point_pos
+                query_pos=None, value_pos=None
             )
             point_tokens = self.points_ffw_layers[i](new_point_tokens)
             query_tokens = self.points_ffw_layers[i](new_query_tokens)
@@ -149,6 +150,8 @@ class BaselineNet(pl.LightningModule):
             nn.Linear(self.cfg.embedding_size, 1)
         )
 
+        self.debug_ffw = nn.Linear(7*3, 1)
+
         #_, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
         #self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
 
@@ -159,19 +162,11 @@ class BaselineNet(pl.LightningModule):
         #self.class_embedding = nn.Embedding(class_vocab_size, self.cfg.embedding_size)
 
     def print_debug(self):
-        print(self.query_embedding.weight.grad)
-        print(self.grasp_embedding.weight.grad)
-        print(self.attention_layers.points_ffw_layers[0].linear1.weight.grad)
-
-    def pe_tokens(self, positions, features):
-        #print("got", positions.shape, features.shape)
-        pos_embed = self.position_encoding(positions)
-        #print(pos_embed.shape)
-        # TODO: fix?!
-        #pos_embed = einops.rearrange(pos_embed, "b n x y -> b n (x y)")
-        #print(pos_embed.shape)
-        #res = torch.cat([pos_embed, features], dim=-1)
-        return pos_embed
+        #print(self.query_embedding.weight.grad)
+        #print(self.grasp_embedding.weight.grad)
+        #print(self.attention_layers.points_ffw_layers[0].linear1.weight.grad)
+        print(self.debug_ffw.weight)
+        print(self.debug_ffw.weight.grad)
 
     def forward(self, pointcloud, grasp_pc):
         """ Forward pass of SGN
@@ -186,6 +181,12 @@ class BaselineNet(pl.LightningModule):
         returns:
             logits: binary classification logits
         """
+        grasp_xyz = einops.rearrange(grasp_pc.float(), "b n c -> b (n c)")
+        #print(grasp_xyz)
+        logit = self.debug_ffw(grasp_xyz)
+
+        return logit
+
         #print(pointcloud[:, :5, :])
         batch_size = pointcloud.shape[0]
 
@@ -197,8 +198,8 @@ class BaselineNet(pl.LightningModule):
 
         grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
 
-        object_pos = self.pe_tokens(xyz, object_tokens)
-        grasp_pos = self.pe_tokens(grasp_pc[..., :3], grasp_tokens)
+        object_pos = self.position_encoding(xyz, object_tokens)
+        grasp_pos = self.position_encoding(grasp_pc, grasp_tokens)
         point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
         point_pos = torch.cat([object_pos, grasp_pos], dim=1)
         
@@ -227,10 +228,12 @@ class BaselineNet(pl.LightningModule):
 
         object_pcs, grasp_pcs, labels = batch
 
-        logits = self.forward(object_pcs, grasp_pcs)
+        logits = self(object_pcs, grasp_pcs)
         logits = logits.squeeze()
 
+        print("res:", logits)
         loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
+        print("loss:", loss)
         
         with torch.no_grad():
             pred = torch.round(torch.sigmoid(logits))
@@ -242,7 +245,8 @@ class BaselineNet(pl.LightningModule):
         return dict(loss=loss, log=log, progress_bar=dict(train_acc=acc))
 
     def validation_step(self, batch, batch_idx):
- 
+        return dict(val_loss=torch.tensor([0.0]), val_acc=torch.tensor([0.0]))
+
         object_pcs, grasp_pcs, labels = batch
 
         logits = self.forward(object_pcs, grasp_pcs)
@@ -336,9 +340,13 @@ class BaselineNet(pl.LightningModule):
         return DataLoader(
             dset,
             batch_size=self.cfg.batch_size,
-            shuffle=mode == "train",
+            # TODO: shuffle
+            #shuffle=mode == "train",
+            shuffle=False,
             num_workers=4,
             pin_memory=True,
+            # TODO
+            #drop_last=mode == "train"
             drop_last=mode == "train"
         )
 

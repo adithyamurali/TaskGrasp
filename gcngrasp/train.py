@@ -77,15 +77,23 @@ def main(cfg):
 
     # model.prepare_data()
     # data = model.train_dataloader()
-    # object_pcs, grasp_pcs, labels = next(iter(data))
     # device = torch.device(all_gpus[0])
     # model = model.to(device)
-    # res = model(object_pcs.to(device), grasp_pcs.to(device))
-    # print("res:", res)
-    # loss = F.binary_cross_entropy_with_logits(res[:, 0], labels.type(torch.cuda.FloatTensor))
-    # model.print_debug()
-    # loss.backward()
-    # model.print_debug()
+    # optimizer = model.configure_optimizers()
+    # for e in range(20):
+    #     print("start epoch", e)
+    #     object_pcs, grasp_pcs, labels = next(iter(data))
+    #     res = model(object_pcs.to(device), grasp_pcs.to(device))
+    #     print("res:", res)
+    #     loss = F.binary_cross_entropy_with_logits(res[:, 0], labels.type(torch.cuda.FloatTensor))
+    #     print("loss", loss)
+    #     model.print_debug()
+    #     loss.backward()
+    #     model.print_debug()
+    #     #opt = model.configure_optimizers()
+    #     optimizer.step()
+    #     model.print_debug()
+    #     optimizer.zero_grad()
     # return
 
     trainer = pl.Trainer(
