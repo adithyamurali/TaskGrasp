@@ -9,8 +9,8 @@ import shlex
 import shutil
 import subprocess
 
-import lmdb
-import msgpack_numpy
+#import lmdb
+#import msgpack_numpy
 import numpy as np
 import torch
 import torch.utils.data as data

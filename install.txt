@@ -1,0 +1,7 @@
+# pytorch gemetric for cu100 and torch-1.4.0: recent versions do not work with torch-1.4.0
+pip install torch-scatter==2.0.4 torch-cluster==1.5.4 torch-sparse==0.6.1 torch-spline-conv==1.2.0 -f https://pytorch-geometric.com/whl/torch-1.4.0+cu100.html
+pip install torch-geometric==1.5.0
+
+# pygraphviz not working: probably graphviz not installed -> maybe package not necessary?
+
+pip install einops

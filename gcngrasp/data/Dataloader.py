@@ -28,6 +28,8 @@ from utils.splits import get_split_data, parse_line, get_ot_pairs_taskgrasp
 import matplotlib.pyplot as plt
 import open3d as o3d
 
+import random
+
 # testing to project point cloud to 3d to match pc with pixels
 def project():
     depth = np.load("0_depth.npy")
@@ -188,9 +190,12 @@ class BaselineData(data.Dataset):
         self._data_labels = []
         self._data_label_counter = {0: 0, 1: 0}
 
-        for i in tqdm.trange(len(lines)):
+        print(random.shuffle(lines))
+        good_ind = []
+        # TODO: change back to full data
+        for i in tqdm.trange(len(lines[:1000])):
             obj, obj_class, grasp_id, task, label = parse_line(lines[i])
-            obj_class = self._map_obj2class[obj]
+            #obj_class = self._map_obj2class[obj]
             all_object_instances.append(obj)
             self._object_task_pairs_dataset.append("{}-{}".format(obj, task))
 
@@ -230,16 +235,22 @@ class BaselineData(data.Dataset):
                 self._grasps[grasp_id] = grasp
 
             self._data.append(
-                (obj, obj_class, grasp_id, task, label))
+                (obj, grasp_id, task, label))
             self._data_labels.append(int(label))
             if label:
                 correct_counter += 1
                 self._data_label_counter[1] += 1
+                good_ind.append(i)
             else:
                 self._data_label_counter[0] += 1
 
+        pprint(self._data_label_counter)
         self._all_object_instances = list(set(all_object_instances))
         self._len = len(self._data)
+        # TODO: changed this for debugging
+        self._len = 20
+        for i in range(self._len//2):
+            self._data[i], self._data[good_ind[i]] = self._data[good_ind[i]], self._data[i]
         print('Loading files from {} took {}s; overall dataset size {}, proportion successful grasps {:.2f}'.format(
             data_txt_splits[self._train], time.time() - start, self._len, float(correct_counter / self._len)))
 
@@ -262,7 +273,7 @@ class BaselineData(data.Dataset):
         return weights_data
 
     def __getitem__(self, idx):
-        obj, obj_class, grasp_id, task, label = self._data[idx]
+        obj, grasp_id, task, label = self._data[idx]
         obj_data = self._obj_data[obj]
         if self._observation_type == 'point_cloud':
             pc = regularize_pc_point_count(
@@ -391,7 +402,7 @@ if __name__ == "__main__":
     _, _, _, name2wn = pickle.load(
         open(os.path.join(args.base_dir, folder_dir, 'misc.pkl'), 'rb'))
 
-    dset = GCNTaskGrasp(
+    dset = BaselineData(
         4096,
         transforms=None,
         train=1,  # train

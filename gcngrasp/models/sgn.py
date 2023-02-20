@@ -1,5 +1,10 @@
 import sys
 import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(os.path.dirname(BASE_DIR))
+sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
+
 import pickle
 import numpy as np
 import pytorch_lightning as pl
@@ -7,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim.lr_scheduler as lr_sched
-from pointnet2_ops.pointnet2_modules import PointnetFPModule, PointnetSAModule, PointnetSAModuleMSG
+from pointnet2_modules import PointnetFPModule, PointnetSAModule, PointnetSAModuleMSG
 from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import transforms
 

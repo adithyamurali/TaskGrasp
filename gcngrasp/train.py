@@ -1,14 +1,16 @@
 import argparse
 import os
 import copy
-import omegaconf
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from models.sgn import SemanticGraspNet
 from models.gcn import GCNGrasp
+from models.baseline import BaselineNet
 from config import get_cfg_defaults
+
+import torch.nn.functional as F
 
 def get_timestamp():
     import datetime
@@ -29,6 +31,8 @@ def main(cfg):
         model = SemanticGraspNet(cfg)
     elif cfg.algorithm_class == 'GCNGrasp':
         model = GCNGrasp(cfg)
+    elif cfg.algorithm_class == 'Baseline':
+        model = BaselineNet(cfg)
     else:
         raise ValueError('Unknown class name {}'.format(cfg.algorithm_class))
 
@@ -70,6 +74,20 @@ def main(cfg):
     all_gpus = list(cfg.gpus)
     if len(all_gpus) == 1:
         torch.cuda.set_device(all_gpus[0])
+
+    # model.prepare_data()
+    # data = model.train_dataloader()
+    # object_pcs, grasp_pcs, labels = next(iter(data))
+    # device = torch.device(all_gpus[0])
+    # model = model.to(device)
+    # res = model(object_pcs.to(device), grasp_pcs.to(device))
+    # print("res:", res)
+    # loss = F.binary_cross_entropy_with_logits(res[:, 0], labels.type(torch.cuda.FloatTensor))
+    # model.print_debug()
+    # loss.backward()
+    # model.print_debug()
+    # return
+
     trainer = pl.Trainer(
         gpus=list(cfg.gpus),
         max_epochs=cfg.epochs,

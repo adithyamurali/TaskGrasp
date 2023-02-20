@@ -20,8 +20,7 @@ sys.path.append(BASE_DIR)
 
 import pointnet2_utils
 import pytorch_utils as pt_utils
-from typing import List
-
+from typing import List, Tuple
 
 class _PointnetSAModuleBase(nn.Module):
 
@@ -32,7 +31,7 @@ class _PointnetSAModuleBase(nn.Module):
         self.mlps = None
 
     def forward(self, xyz: torch.Tensor,
-                features: torch.Tensor = None) -> (torch.Tensor, torch.Tensor):
+                features: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""
         Parameters
         ----------
@@ -209,7 +208,7 @@ class PointnetSAModuleVotes(nn.Module):
 
     def forward(self, xyz: torch.Tensor,
                 features: torch.Tensor = None,
-                inds: torch.Tensor = None) -> (torch.Tensor, torch.Tensor):
+                inds: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""
         Parameters
         ----------
@@ -307,7 +306,7 @@ class PointnetSAModuleMSGVotes(nn.Module):
             self.mlps.append(pt_utils.SharedMLP(mlp_spec, bn=bn))
 
     def forward(self, xyz: torch.Tensor,
-                features: torch.Tensor = None, inds: torch.Tensor = None) -> (torch.Tensor, torch.Tensor):
+                features: torch.Tensor = None, inds: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""
         Parameters
         ----------

@@ -3,7 +3,8 @@ from yacs.config import CfgNode as CN
 # Miscellaneous configs
 _C = CN()
 _C.weight_file = ''
-_C.batch_size = 16
+#_C.batch_size = 16
+_C.batch_size = 4
 _C.num_points = 4096
 _C.epochs = 200
 _C.gpus = [0, ]
@@ -18,7 +19,8 @@ _C.split_mode = 'o'
 _C.embedding_size = 256
 _C.split_idx = 0
 _C.split_version = 1  # 0 is for random splits, 1 is for cross-validation splits
-_C.patience = 50
+#_C.patience = 50
+_C.patience = 200
 _C.pc_scaling = True
 _C.use_task1_grasps = True
 _C.weighted_sampling = True
@@ -27,6 +29,9 @@ _C.pretraining_mode = 0  # This is just for pointnet layers. 0 for no pretrainin
 _C.pretrained_weight_file = ''
 _C.embedding_mode = 0 # 0 for random initialization, 1 for finetuning pretrained weights, 2 for loading and freezing pretrained weights
 _C.embedding_model = 'numberbatch'
+
+_C.num_attn_layers = 256
+_C.num_attn_heads = 256
 
 # Graph GCN configs
 _C.graph_data_path = 'kb2_task_wn_noi'
@@ -44,8 +49,11 @@ _C.model.use_xyz = True
 _C.model.use_normal = False
 
 _C.optimizer = CN()
-_C.optimizer.lr_decay = 0.7
-_C.optimizer.lr = 1e-3
+#_C.optimizer.lr_decay = 0.7
+#_C.optimizer.lr = 1e-3
+_C.optimizer.lr_decay = 1
+_C.optimizer.lr = 1e-4
+
 _C.optimizer.decay_step = 2e4
 _C.optimizer.bn_momentum = 0.5
 _C.optimizer.bnm_decay =0.5

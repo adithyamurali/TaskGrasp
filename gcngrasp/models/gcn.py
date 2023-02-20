@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim.lr_scheduler as lr_sched
-from pointnet2_ops.pointnet2_modules import PointnetFPModule, PointnetSAModule, PointnetSAModuleMSG
+from pointnet2.pointnet2_modules import PointnetFPModule, PointnetSAModule, PointnetSAModuleMSG
 from torch.utils.data import DataLoader, DistributedSampler
 from torch_geometric.nn import SAGEConv, BatchNorm, GCNConv
 from torchvision import transforms

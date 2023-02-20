@@ -1,7 +1,13 @@
 """
-Adapted from sgn.py
+Adapted from gcn.py
 """
+import sys
 import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(os.path.dirname(BASE_DIR))
+sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
+
 import pickle
 import numpy as np
 import pytorch_lightning as pl
@@ -9,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim.lr_scheduler as lr_sched
-from pointnet2.pointnet2_modules import PointnetFPModule, PointnetSAModule, PointnetSAModuleMSG
+from pointnet2_modules import PointnetFPModule, PointnetSAModule, PointnetSAModuleMSG
 from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import transforms
 
@@ -18,19 +24,68 @@ from data.SG14KLoader import SG14K
 from data.Dataloader import BaselineData
 from data.data_specification import TASKS, TASKS_SG14K
 import data.data_utils as d_utils
+from models.position_encodings import RotaryPositionEncoding3D
+
+from .layers import RelativeCrossAttentionLayer, CrossAttentionLayer, FeedforwardLayer
+
+import einops
 
 class PointNetLayers(nn.Module):
-    def __init__(self):
-        pc_dim = 1
+    def __init__(self, use_xyz):
+        super().__init__()
+
+        input_embedding_size = 3
 
         self.SA_modules = nn.ModuleList()
         self.SA_modules.append(
             PointnetSAModuleMSG(
-                npoint=512,
+                npoint=1024*4,
                 radii=[0.1, 0.2, 0.4],
                 nsamples=[16, 32, 128],
-                mlps=[[pc_dim, 32, 32, 64], [pc_dim, 64, 64, 128], [pc_dim, 64, 96, 128]],
-                use_xyz=self.cfg.model.use_xyz,
+                mlps=[[input_embedding_size, 4, 8, 8], [input_embedding_size, 4, 8, 8], [input_embedding_size, 4, 8, 16]],
+                use_xyz=use_xyz,
+            )
+        )
+
+        input_channels = 8 + 8 + 16
+
+        self.SA_modules.append(
+            PointnetSAModuleMSG(
+                npoint=1024,
+                radii=[0.2, 0.4, 0.8],
+                nsamples=[32, 64, 128],
+                mlps=[
+                    [input_channels, 32, 16, 8],
+                    [input_channels, 32, 16, 8],
+                    [input_channels, 32, 16, 16],
+                ],
+                use_xyz=use_xyz,
+            )
+        )
+
+        input_channels = 8 + 8 + 16
+
+        self.SA_modules.append(
+            PointnetSAModuleMSG(
+                npoint=512,
+                radii=[0.2, 0.4, 0.8],
+                nsamples=[32, 64, 128],
+                mlps=[
+                    [input_channels, 32, 32, 20],
+                    [input_channels, 32, 32, 20],
+                    [input_channels, 32, 32, 20],
+                ],
+                use_xyz=use_xyz,
+            )
+        )
+        """
+        self.SA_modules.append(
+            PointnetSAModuleMSG(
+                npoint=1024*4,
+                radii=[0.1, 0.2, 0.4],
+                nsamples=[16, 32, 128],
+                mlps=[[input_embedding_size, 32, 32, 64], [input_embedding_size, 64, 64, 128], [input_embedding_size, 64, 96, 128]],
+                use_xyz=use_xyz,
             )
         )
 
@@ -38,7 +93,7 @@ class PointNetLayers(nn.Module):
 
         self.SA_modules.append(
             PointnetSAModuleMSG(
-                npoint=128,
+                npoint=1024,
                 radii=[0.2, 0.4, 0.8],
                 nsamples=[32, 64, 128],
                 mlps=[
@@ -46,16 +101,26 @@ class PointNetLayers(nn.Module):
                     [input_channels, 128, 128, 256],
                     [input_channels, 128, 128, 256],
                 ],
-                use_xyz=self.cfg.model.use_xyz,
+                use_xyz=use_xyz,
             )
         )
 
+        input_channels = 128 + 256 + 256
+
         self.SA_modules.append(
-            PointnetSAModule(
-                mlp=[128 + 256 + 256, 256, 512, 1024],
-                use_xyz=self.cfg.model.use_xyz,
+            PointnetSAModuleMSG(
+                npoint=512,
+                radii=[0.2, 0.4, 0.8],
+                nsamples=[32, 64, 128],
+                mlps=[
+                    [input_channels, 256, 512, 1024],
+                    [input_channels, 256, 512, 1024],
+                    [input_channels, 256, 512, 1024]
+                ],
+                use_xyz=use_xyz,
             )
         )
+        """
 
     def _break_up_pc(self, pc):
         xyz = pc[..., 0:3].contiguous()
@@ -68,33 +133,62 @@ class PointNetLayers(nn.Module):
         """
         input: b x n x 6
         """
+        # TODO: colors normalize
         xyz, features = self._break_up_pc(pointcloud)
         for module in self.SA_modules:
+            #print(xyz, features)
             xyz, features = module(xyz, features)
+        features = einops.rearrange(features, "b c n -> b n c")
         return xyz, features
 
 class AttentionLayers(nn.Module):
-    def __init__(self):
-        pass
+    def __init__(self, embedding_dim, num_attn_layers, num_attn_heads):
+        super().__init__()
+        self.points_self_attn_layers = nn.ModuleList()
+        self.points_ffw_layers = nn.ModuleList()
+        self.cross_attn_layers = nn.ModuleList()
+        self.query_ffw_layers = nn.ModuleList()
+        for _ in range(num_attn_layers):
+            self.points_self_attn_layers.append(RelativeCrossAttentionLayer(embedding_dim, num_attn_heads))
+            self.points_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
+            self.cross_attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
+            self.query_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
 
-    def forward(self, object_tokens, grasp_tokens, query_token):
-        return object_tokens, grasp_tokens, query_token
+    def forward(self, point_tokens, point_pos, query_tokens):
+        #print("got:", point_tokens.shape, point_pos.shape, query_tokens.shape)
+        for i in range(len(self.cross_attn_layers)):
+            new_point_tokens = self.points_self_attn_layers[i](
+                query=point_tokens, value=point_tokens,
+                query_pos=point_pos, value_pos=point_pos
+            )
+            new_query_tokens = self.points_self_attn_layers[i](
+                query=query_tokens, value=point_tokens,
+                query_pos=None, value_pos=point_pos
+            )
+            point_tokens = self.points_ffw_layers[i](new_point_tokens)
+            query_tokens = self.points_ffw_layers[i](new_query_tokens)
+        return point_tokens, query_tokens
 
 class BaselineNet(pl.LightningModule):
     def __init__(self, cfg):
         super().__init__()
 
+        print("constructing baseline")
+
         self.cfg = cfg
 
-        self.pointnet = PointNetLayers()
+        point_features_size = 32
+        self.pointnet = PointNetLayers(cfg.model.use_xyz)
+        self.position_encoding = RotaryPositionEncoding3D(cfg.embedding_size)
 
-        self.grasp_embedding = nn.Embedding(6, self.cfg.embedding_size)
+        # TODO: maybe 6 not 7 points?
+        self.grasp_embedding = nn.Embedding(7, self.cfg.embedding_size)
         self.query_embedding = nn.Embedding(1, self.cfg.embedding_size)
 
-        self.attention_layers = AttentionLayers()
+        self.attention_layers = AttentionLayers(embedding_dim=self.cfg.embedding_size, num_attn_layers=self.cfg.num_attn_layers, num_attn_heads=self.cfg.num_attn_heads)
 
         self.prediction_layer = nn.Sequential(
-            nn.Linear(self.cfg.embeddding_size, 1)
+            nn.Linear(self.cfg.embedding_size, 1)
         )
 
         #_, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
@@ -106,32 +200,20 @@ class BaselineNet(pl.LightningModule):
         #class_vocab_size = len(self._class_list)
         #self.class_embedding = nn.Embedding(class_vocab_size, self.cfg.embedding_size)
 
-        """
-        self.fc_layer = nn.Sequential(
-            nn.Linear(1024, 512, bias=False),
-            nn.BatchNorm1d(512),
-            nn.ReLU(True),
-            nn.Linear(512, self.cfg.embedding_size)
-        )
+    def print_debug(self):
+        print(self.query_embedding.weight.grad)
+        print(self.grasp_embedding.weight.grad)
+        print(self.attention_layers.points_ffw_layers[0].linear1.weight.grad)
 
-        embeddding_size = self.cfg.embedding_size*3
-
-        self.fc_layer2 = nn.Sequential(
-            nn.Linear(embeddding_size, 256, bias=False),
-            nn.BatchNorm1d(256),
-            nn.ReLU(True),
-            nn.Dropout(0.2),
-            nn.Linear(256, 256),
-            nn.BatchNorm1d(256),
-            nn.ReLU(True),
-            nn.Dropout(0.2),
-            nn.Linear(256, 256),
-            nn.BatchNorm1d(256),
-            nn.ReLU(True),
-            nn.Dropout(0.2),
-            nn.Linear(256, 1),
-        )
-        """
+    def pc_tokens(self, positions, features):
+        #print("got", positions.shape, features.shape)
+        pos_embed = self.position_encoding(positions)
+        #print(pos_embed.shape)
+        # TODO: fix?!
+        #pos_embed = einops.rearrange(pos_embed, "b n x y -> b n (x y)")
+        #print(pos_embed.shape)
+        #res = torch.cat([pos_embed, features], dim=-1)
+        return pos_embed
 
     def forward(self, pointcloud, grasp_pc):
         """ Forward pass of SGN
@@ -139,25 +221,45 @@ class BaselineNet(pl.LightningModule):
         Args:
             pointcloud: Variable(torch.cuda.FloatTensor) [B, N, 6] tensor, 
                 B is batch size, N is the number of points. The last channel is (x,y,z,feature)
-            grasp_pc: [B, 6, 3]
+            grasp_pc: [B, 7, 3]
             tasks: id of tasks used lookup emebdding dictionary
             classes: id of object classes used lookup emebdding dictionary
 
         returns:
             logits: binary classification logits
         """
+        batch_size = pointcloud.shape[0]
 
-        xyz, features = self.pointnet(pointcloud)
+        #print("input features", pointcloud.shape, grasp_pc.shape)
+        pointcloud = pointcloud.float()
+        grasp_pc = grasp_pc.float()
+        xyz, object_tokens = self.pointnet(pointcloud)
+        #print(xyz.shape, object_tokens.shape)
 
-        object_tokens = self.pc_tokens(xyz, features)
-        grasp_tokens = self.pc_tokens(grasp_pc[..., :3], torch.unsqueeze(self.grasp_embedding, 0))
+        grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
 
-        object_tokens, grasp_tokens, query_token = self.attention_layers(object_tokens, grasp_tokens, self.query_embedding)
+        object_pos = self.pc_tokens(xyz, object_tokens)
+        grasp_pos = self.pc_tokens(grasp_pc[..., :3], grasp_tokens)
+        point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
+        point_pos = torch.cat([object_pos, grasp_pos], dim=1)
+        
+        query_tokens = self.query_embedding.weight.repeat(1, batch_size, 1)
+        #point_tokens = einops.rearrange(point_tokens, "b n c -> n b c")
+        point_pos = einops.rearrange(point_pos, "b n c x -> n b c x")
+
+        #print("embeddings:", object_pos.shape, object_tokens.shape, grasp_pos.shape, grasp_tokens.shape, query_tokens.shape)
+        #print("embeddings:", point_tokens.shape, point_pos.shape, query_tokens.shape)
+
+        #object_tokens, grasp_tokens, query_token = self.attention_layers(object_tokens, grasp_tokens, query_token)
+        point_tokens, query_tokens = self.attention_layers(point_tokens, point_pos, query_tokens)
 
         #shape_embedding = self.fc_layer(features.squeeze(-1))
         #logits = self.fc_layer2(embedding)
 
-        logits = self.prediction_layer(query_token)
+        #print("tokens result shape:", point_tokens.shape, query_tokens.shape)
+
+        logits = self.prediction_layer(query_tokens[0])
+        #print("logits:", logits.shape)
 
         return logits
 
@@ -172,6 +274,7 @@ class BaselineNet(pl.LightningModule):
         
         with torch.no_grad():
             pred = torch.round(torch.sigmoid(logits))
+            #print("predictions:", pred.sum(), pred.shape[0]-pred.sum(), labels.sum())
             acc = (pred == labels).float().mean()
 
         log = dict(train_loss=loss, train_acc=acc)
@@ -192,6 +295,7 @@ class BaselineNet(pl.LightningModule):
         #        logits = logits.unsqueeze(-1)
         #        loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
         pred = torch.round(torch.sigmoid(logits))
+        # TODO: check correct shape, not additional trailing 1-dim
         acc = (pred == labels).float().mean()
 
         return dict(val_loss=loss, val_acc=acc)
@@ -210,6 +314,7 @@ class BaselineNet(pl.LightningModule):
 
     def configure_optimizers(self):
         # TODO: pruned some fancy scheduling
+        print("lr:", self.cfg.optimizer.lr)
 
         optimizer = torch.optim.Adam(
             self.parameters(),
@@ -224,8 +329,9 @@ class BaselineNet(pl.LightningModule):
     def prepare_data(self):
         """ Initializes datasets used for training, validation and testing """
 
-        # TODO: remove data aug
-        if self.cfg.dataset_class == 'SGNTaskGrasp':
+        # TODO: I removed data aug
+
+        if self.cfg.dataset_class == 'BaselineData':
             self.train_dset = BaselineData(
                 self.cfg.num_points,
                 #transforms=train_transforms,
@@ -245,7 +351,7 @@ class BaselineNet(pl.LightningModule):
         else:
             raise ValueError('Invalid dataset class: {}'.format(self.cfg.dataset_class))
 
-        if self.cfg.dataset_class == 'SGNTaskGrasp':
+        if self.cfg.dataset_class == 'BaselineData':
             self.val_dset = BaselineData(
                 self.cfg.num_points,
                 #transforms=train_transforms,
