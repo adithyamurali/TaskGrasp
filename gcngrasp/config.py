@@ -52,7 +52,7 @@ _C.optimizer = CN()
 #_C.optimizer.lr_decay = 0.7
 #_C.optimizer.lr = 1e-3
 _C.optimizer.lr_decay = 1
-_C.optimizer.lr = 1
+_C.optimizer.lr = 1e-2
 
 _C.optimizer.decay_step = 2e4
 _C.optimizer.bn_momentum = 0.5

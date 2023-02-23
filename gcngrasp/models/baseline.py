@@ -24,7 +24,7 @@ from data.SG14KLoader import SG14K
 from data.Dataloader import BaselineData
 from data.data_specification import TASKS, TASKS_SG14K
 import data.data_utils as d_utils
-from models.position_encodings import RotaryPositionEncoding3D
+from models.position_encodings import RotaryPositionEncoding3D, PositionEmbeddingLearned
 
 from .layers import RelativeCrossAttentionLayer, CrossAttentionLayer, FeedforwardLayer
 
@@ -102,30 +102,69 @@ class AttentionLayers(nn.Module):
     def __init__(self, embedding_dim, num_attn_layers, num_attn_heads):
         super().__init__()
         self.points_self_attn_layers = nn.ModuleList()
-        self.points_ffw_layers = nn.ModuleList()
-        self.cross_attn_layers = nn.ModuleList()
-        self.query_ffw_layers = nn.ModuleList()
+        # self.points_ffw_layers = nn.ModuleList()
+        # self.cross_attn_layers = nn.ModuleList()
+        # self.query_ffw_layers = nn.ModuleList()
+        # for _ in range(num_attn_layers):
+        #     self.points_self_attn_layers.append(RelativeCrossAttentionLayer(embedding_dim, num_attn_heads))
+        #     #self.points_self_attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
+        #     self.points_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
+        #     self.cross_attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
+        #     self.query_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
+        self.self_attn_layers = nn.ModuleList()
+        self.ffw_layers = nn.ModuleList()
         for _ in range(num_attn_layers):
-            self.points_self_attn_layers.append(RelativeCrossAttentionLayer(embedding_dim, num_attn_heads))
-            #self.points_self_attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
-            self.points_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
-            self.cross_attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
-            self.query_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
+            self.self_attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
+            self.ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
 
-    def forward(self, point_tokens, point_pos, query_tokens):
+    # TODO distinguish absolute relative positions
+    def forward(self, point_tokens, query_tokens):
         #print("got:", point_tokens.shape, point_pos.shape, query_tokens.shape)
-        for i in range(len(self.cross_attn_layers)):
-            new_point_tokens = self.points_self_attn_layers[i](
-                query=point_tokens, value=point_tokens,
-                query_pos=point_pos, value_pos=point_pos
+        #query_pos = torch.zeros_like(query_tokens)
+        #all_tokens = torch.cat([point_tokens, query_tokens], dim=1)
+        #all_pos = torch.cat([point_pos, query_pos], dim=1)
+        print("got", point_tokens.shape, query_tokens.shape)
+        all_tokens = torch.cat([point_tokens, query_tokens], dim=1)
+        all_tokens = einops.rearrange(all_tokens, "b n c -> n b c")
+        #all_pos = einops.rearrange(all_pos, "b n c -> n b c")
+        #all_tokens += all_pos
+        #print(all_pos)
+        #print(all_tokens.shape, all_pos.shape)
+        for i in range(len(self.self_attn_layers)):
+            all_tokens = self.self_attn_layers[i](
+                query=all_tokens, value=all_tokens,
+                query_pos=None, value_pos=None
             )
+            #all_tokens = self.ffw_layers[i](all_tokens)
+        print(all_tokens.shape)
+        return 0, all_tokens[-1:, :, :]
+
+        print("QQ", query_tokens)
+        print("input:", point_pos)
+        print("got:", point_tokens.shape, point_pos.shape, query_tokens.shape)
+        point_tokens = einops.rearrange(point_tokens, "b n c -> n b c")
+        point_pos = einops.rearrange(point_pos, "b n c -> n b c")
+        query_tokens = einops.rearrange(query_tokens, "b n c -> n b c")
+        print("to1:", point_tokens.shape, point_pos.shape, query_tokens.shape)
+        for i in range(len(self.cross_attn_layers)):
+            # new_point_tokens = self.points_self_attn_layers[i](
+            #     query=point_tokens, value=point_tokens,
+            #     query_pos=point_pos, value_pos=point_pos
+            # )
+            new_point_tokens = point_tokens
             new_query_tokens = self.cross_attn_layers[i](
                 query=query_tokens, value=point_tokens,
                 #query_pos=None, value_pos=point_pos
-                query_pos=None, value_pos=None
+                query_pos=None, value_pos=point_pos
             )
+            print("intermed:", new_query_tokens[:, 0, :]-new_query_tokens[:, 1, :])
             point_tokens = self.points_ffw_layers[i](new_point_tokens)
             query_tokens = self.points_ffw_layers[i](new_query_tokens)
+            print("nearly final:", query_tokens)
+        print("to2:", point_tokens.shape, point_pos.shape, query_tokens.shape)
+        point_tokens = einops.rearrange(point_tokens, "n b c -> b n c")
+        query_tokens = einops.rearrange(query_tokens, "n b c -> b n c")
+        print("to3:", point_tokens.shape, point_pos.shape, query_tokens.shape)
         return point_tokens, query_tokens
 
 class BaselineNet(pl.LightningModule):
@@ -152,6 +191,10 @@ class BaselineNet(pl.LightningModule):
 
         self.debug_ffw = nn.Linear(7*3, 1)
 
+        # TODO: back to PositionEmbeddingLearned Module?
+        #self.absolute_position_encoding = PositionEmbeddingLearned(3, self.cfg.embedding_size)
+        self.absolute_position_encoding = nn.Linear(3, self.cfg.embedding_size)
+
         #_, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
         #self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
 
@@ -168,7 +211,7 @@ class BaselineNet(pl.LightningModule):
         print(self.debug_ffw.weight)
         print(self.debug_ffw.weight.grad)
 
-    def forward(self, pointcloud, grasp_pc):
+    def forward(self, pointcloud, grasp_xyz):
         """ Forward pass of SGN
 
         Args:
@@ -181,29 +224,33 @@ class BaselineNet(pl.LightningModule):
         returns:
             logits: binary classification logits
         """
-        grasp_xyz = einops.rearrange(grasp_pc.float(), "b n c -> b (n c)")
-        #print(grasp_xyz)
-        logit = self.debug_ffw(grasp_xyz)
-
-        return logit
 
         #print(pointcloud[:, :5, :])
         batch_size = pointcloud.shape[0]
 
         #print("input features", pointcloud.shape, grasp_pc.shape)
-        pointcloud = pointcloud.float()
-        grasp_pc = grasp_pc.float()
-        xyz, object_tokens = self.pointnet(pointcloud)
+        #pointcloud = pointcloud.float()
+        grasp_xyz = grasp_xyz.float()
+        # xyz, object_tokens = self.pointnet(pointcloud)
         #print(xyz.shape, object_tokens.shape)
 
         grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
+        query_tokens = self.query_embedding.weight.repeat(batch_size, 1, 1)
+        #grasp_padded_xyz = torch.cat([grasp_xyz, torch.zeros(grasp_xyz.shape[0], grasp_xyz.shape[1], query_tokens.shape[-1]-grasp_xyz.shape[2]).to(grasp_xyz.device)], dim=-1)
+        grasp_positional_encoding = self.absolute_position_encoding(grasp_xyz)
 
-        object_pos = self.position_encoding(xyz, object_tokens)
-        grasp_pos = self.position_encoding(grasp_pc, grasp_tokens)
+        _, query_tokens = self.attention_layers(grasp_positional_encoding, query_tokens)
+
+        logits = query_tokens
+        logits = self.prediction_layer(query_tokens)
+
+        return logits
+
+        relative_object_pos = self.position_encoding(xyz)
+        relative_grasp_pos = self.position_encoding(grasp_xyz)
         point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
-        point_pos = torch.cat([object_pos, grasp_pos], dim=1)
+        point_pos = torch.cat([relative_object_pos, relative_grasp_pos], dim=1)
         
-        query_tokens = self.query_embedding.weight.repeat(1, batch_size, 1)
         #point_tokens = einops.rearrange(point_tokens, "b n c -> n b c")
         point_pos = einops.rearrange(point_pos, "b n c x -> n b c x")
         #point_pos = einops.rearrange(point_pos, "b n c -> n b c")
@@ -219,6 +266,7 @@ class BaselineNet(pl.LightningModule):
 
         #print("tokens result shape:", point_tokens.shape, query_tokens.shape)
 
+        #TODO [0]
         logits = self.prediction_layer(query_tokens[0])
         #print("logits:", logits.shape)
 
@@ -228,7 +276,7 @@ class BaselineNet(pl.LightningModule):
 
         object_pcs, grasp_pcs, labels = batch
 
-        logits = self(object_pcs, grasp_pcs)
+        logits = self.forward(object_pcs, grasp_pcs)
         logits = logits.squeeze()
 
         print("res:", logits)
