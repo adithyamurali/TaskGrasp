@@ -1,5 +1,5 @@
 *.png
-*.yml
+#*.yml
 *.pyc
 ./runs/
 ./data/
