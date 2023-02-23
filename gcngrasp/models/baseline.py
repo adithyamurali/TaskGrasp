@@ -118,12 +118,15 @@ class AttentionLayers(nn.Module):
             self.ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
 
     # TODO distinguish absolute relative positions
-    def forward(self, point_tokens, query_tokens):
+    def forward(self, point_tokens, point_positional_embeddings, query_tokens):
         #print("got:", point_tokens.shape, point_pos.shape, query_tokens.shape)
         #query_pos = torch.zeros_like(query_tokens)
         #all_tokens = torch.cat([point_tokens, query_tokens], dim=1)
         #all_pos = torch.cat([point_pos, query_pos], dim=1)
-        print("got", point_tokens.shape, query_tokens.shape)
+        #print("got", point_tokens.shape, point_positional_embeddings.shape, query_tokens.shape)
+        #point_tokens = point_tokens + point_positional_embeddings
+        #print("ppe", point_positional_embeddings[0, ...])
+        point_tokens = point_tokens + point_positional_embeddings
         all_tokens = torch.cat([point_tokens, query_tokens], dim=1)
         all_tokens = einops.rearrange(all_tokens, "b n c -> n b c")
         #all_pos = einops.rearrange(all_pos, "b n c -> n b c")
@@ -135,9 +138,10 @@ class AttentionLayers(nn.Module):
                 query=all_tokens, value=all_tokens,
                 query_pos=None, value_pos=None
             )
-            #all_tokens = self.ffw_layers[i](all_tokens)
-        print(all_tokens.shape)
-        return 0, all_tokens[-1:, :, :]
+            #if i != len(self.self_attn_layers)-1:
+            all_tokens = self.ffw_layers[i](all_tokens)
+        all_tokens = einops.rearrange(all_tokens, "n b c -> b n c")
+        return all_tokens[:, :-1, :], all_tokens[:, -1:, :]
 
         print("QQ", query_tokens)
         print("input:", point_pos)
@@ -189,8 +193,6 @@ class BaselineNet(pl.LightningModule):
             nn.Linear(self.cfg.embedding_size, 1)
         )
 
-        self.debug_ffw = nn.Linear(7*3, 1)
-
         # TODO: back to PositionEmbeddingLearned Module?
         #self.absolute_position_encoding = PositionEmbeddingLearned(3, self.cfg.embedding_size)
         self.absolute_position_encoding = nn.Linear(3, self.cfg.embedding_size)
@@ -229,20 +231,24 @@ class BaselineNet(pl.LightningModule):
         batch_size = pointcloud.shape[0]
 
         #print("input features", pointcloud.shape, grasp_pc.shape)
-        #pointcloud = pointcloud.float()
-        grasp_xyz = grasp_xyz.float()
-        # xyz, object_tokens = self.pointnet(pointcloud)
+        pointcloud = pointcloud.float()
+        object_xyz, object_tokens = self.pointnet(pointcloud)
+        object_positional_encoding = self.absolute_position_encoding(object_xyz)
         #print(xyz.shape, object_tokens.shape)
 
+        grasp_xyz = grasp_xyz.float()
         grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
-        query_tokens = self.query_embedding.weight.repeat(batch_size, 1, 1)
-        #grasp_padded_xyz = torch.cat([grasp_xyz, torch.zeros(grasp_xyz.shape[0], grasp_xyz.shape[1], query_tokens.shape[-1]-grasp_xyz.shape[2]).to(grasp_xyz.device)], dim=-1)
         grasp_positional_encoding = self.absolute_position_encoding(grasp_xyz)
 
-        _, query_tokens = self.attention_layers(grasp_positional_encoding, query_tokens)
+        #point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
+        #point_positional_encoding = torch.cat([object_positional_encoding, grasp_positional_encoding], dim=1)
 
-        logits = query_tokens
-        logits = self.prediction_layer(query_tokens)
+        query_tokens = self.query_embedding.weight.repeat(batch_size, 1, 1)
+
+        _, query_tokens = self.attention_layers(grasp_tokens, grasp_positional_encoding, query_tokens)
+
+        # pick only token 0 as there is only one query token
+        logits = self.prediction_layer(query_tokens[:, 0, :])
 
         return logits
 
@@ -279,13 +285,13 @@ class BaselineNet(pl.LightningModule):
         logits = self.forward(object_pcs, grasp_pcs)
         logits = logits.squeeze()
 
-        print("res:", logits)
+        #print("res:", logits, ", gt:", labels)
         loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
-        print("loss:", loss)
+        #print("loss:", loss)
         
         with torch.no_grad():
             pred = torch.round(torch.sigmoid(logits))
-            #print("predictions:", pred.sum(), pred.shape[0]-pred.sum(), labels.sum())
+            #print("predictions:", pred, labels)
             acc = (pred == labels).float().mean()
 
         log = dict(train_loss=loss, train_acc=acc)
@@ -389,8 +395,7 @@ class BaselineNet(pl.LightningModule):
             dset,
             batch_size=self.cfg.batch_size,
             # TODO: shuffle
-            #shuffle=mode == "train",
-            shuffle=False,
+            shuffle=mode == "train",
             num_workers=4,
             pin_memory=True,
             # TODO
