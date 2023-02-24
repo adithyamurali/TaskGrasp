@@ -5,6 +5,7 @@ embedding_mode: '2'
 embedding_model: numberbatch
 #embedding_size: '300'
 embedding_size: '60'
+#embedding_size: '8'
 folder_dir: taskgrasp
 gcn_conv_type: GCNConv
 gcn_num_layers: '6'

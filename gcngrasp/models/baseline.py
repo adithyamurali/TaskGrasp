@@ -181,7 +181,13 @@ class BaselineNet(pl.LightningModule):
 
         #point_features_size = 32
         self.pointnet = PointNetLayers(cfg.model.use_xyz)
-        self.position_encoding = RotaryPositionEncoding3D(cfg.embedding_size)
+        #self.relative_position_encoding = RotaryPositionEncoding3D(cfg.embedding_size)
+
+        self.debug_net = nn.Sequential(
+            nn.Linear(7*3, self.cfg.embedding_size),
+            nn.ReLU(),
+            nn.Linear(self.cfg.embedding_size, 1)
+        )
 
         # TODO: maybe 6 not 7 points?
         self.grasp_embedding = nn.Embedding(7, self.cfg.embedding_size)
@@ -195,7 +201,20 @@ class BaselineNet(pl.LightningModule):
 
         # TODO: back to PositionEmbeddingLearned Module?
         #self.absolute_position_encoding = PositionEmbeddingLearned(3, self.cfg.embedding_size)
-        self.absolute_position_encoding = nn.Linear(3, self.cfg.embedding_size)
+        #self.absolute_position_encoding = nn.Linear(3, self.cfg.embedding_size)
+
+        # self.absolute_position_encoding = nn.Sequential(
+        #     nn.Conv1d(3, self.cfg.embedding_size, kernel_size=1),
+        #     nn.BatchNorm1d(self.cfg.embedding_size),
+        #     nn.ReLU(inplace=True),
+        #     nn.Conv1d(self.cfg.embedding_size, self.cfg.embedding_size, kernel_size=1)
+        # )
+        self.absolute_position_encoding = nn.Sequential(
+            nn.Linear(3, self.cfg.embedding_size),
+            nn.BatchNorm1d(7),
+            nn.ReLU(inplace=True),
+            nn.Linear(self.cfg.embedding_size, self.cfg.embedding_size)
+        )
 
         #_, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
         #self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
@@ -226,14 +245,19 @@ class BaselineNet(pl.LightningModule):
         returns:
             logits: binary classification logits
         """
+        #grasp_xyz = grasp_xyz * 20
+        #print(grasp_xyz)
+        #return self.debug_net(einops.rearrange(grasp_xyz.float(), "b n d -> b (n d)"))
 
         #print(pointcloud[:, :5, :])
         batch_size = pointcloud.shape[0]
 
         #print("input features", pointcloud.shape, grasp_pc.shape)
-        pointcloud = pointcloud.float()
-        object_xyz, object_tokens = self.pointnet(pointcloud)
-        object_positional_encoding = self.absolute_position_encoding(object_xyz)
+
+        #pointcloud = pointcloud.float()
+        #object_xyz, object_tokens = self.pointnet(pointcloud)
+        #object_positional_encoding = self.absolute_position_encoding(object_xyz)
+
         #print(xyz.shape, object_tokens.shape)
 
         grasp_xyz = grasp_xyz.float()
@@ -252,8 +276,8 @@ class BaselineNet(pl.LightningModule):
 
         return logits
 
-        relative_object_pos = self.position_encoding(xyz)
-        relative_grasp_pos = self.position_encoding(grasp_xyz)
+        relative_object_pos = self.relative_position_encoding(xyz)
+        relative_grasp_pos = self.relative_position_encoding(grasp_xyz)
         point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
         point_pos = torch.cat([relative_object_pos, relative_grasp_pos], dim=1)
         

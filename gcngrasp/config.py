@@ -51,7 +51,7 @@ _C.model.use_normal = False
 _C.optimizer = CN()
 _C.optimizer.lr_decay = 0.7
 #_C.optimizer.lr = 1e-3
-_C.optimizer.lr = 1e-4
+_C.optimizer.lr = 1e-3
 
 _C.optimizer.decay_step = 2e4
 _C.optimizer.bn_momentum = 0.5
