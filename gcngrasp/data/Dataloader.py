@@ -248,7 +248,7 @@ class BaselineData(data.Dataset):
         self._all_object_instances = list(set(all_object_instances))
         self._len = len(self._data)
         # TODO: changed this for debugging
-        self._len = 16
+        self._len = 8
         for i in range(0, self._len, 2):
             self._data[i], self._data[good_ind[i]] = self._data[good_ind[i]], self._data[i]
         print('Loading files from {} took {}s; overall dataset size {}, proportion successful grasps {:.2f}'.format(

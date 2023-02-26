@@ -1,34 +1,24 @@
-"""
-Adapted from gcn.py
-"""
 import sys
 import os
+import pickle
+import pytorch_lightning as pl
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+import einops
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(os.path.dirname(BASE_DIR))
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 
-import pickle
-import numpy as np
-import pytorch_lightning as pl
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim.lr_scheduler as lr_sched
 from pointnet2_modules import PointnetFPModule, PointnetSAModule, PointnetSAModuleMSG
-from torch.utils.data import DataLoader, DistributedSampler
-from torchvision import transforms
 
-from data.SGNLoader import SGNTaskGrasp
-from data.SG14KLoader import SG14K
 from data.Dataloader import BaselineData
 from data.data_specification import TASKS, TASKS_SG14K
-import data.data_utils as d_utils
-from models.position_encodings import RotaryPositionEncoding3D, PositionEmbeddingLearned
-
 from .layers import RelativeCrossAttentionLayer, CrossAttentionLayer, FeedforwardLayer
+from .position_encodings import RotaryPositionEncoding3D
 
-import einops
 
 class PointNetLayers(nn.Module):
     def __init__(self, use_xyz):
@@ -42,7 +32,11 @@ class PointNetLayers(nn.Module):
                 npoint=1024*4,
                 radii=[0.1, 0.2, 0.4],
                 nsamples=[16, 32, 128],
-                mlps=[[input_embedding_size, 4, 8, 8], [input_embedding_size, 4, 8, 8], [input_embedding_size, 4, 8, 16]],
+                mlps=[
+                    [input_embedding_size, 4, 8, 8],
+                    [input_embedding_size, 4, 8, 8],
+                    [input_embedding_size, 4, 8, 16]
+                ],
                 use_xyz=use_xyz,
             )
         )
@@ -88,234 +82,191 @@ class PointNetLayers(nn.Module):
     # TODO: do we want to process rgb?
     def forward(self, pointcloud):
         """
-        input: b x n x 6
+        Arguments:
+            pointcloud: b x n x 6
         """
         # TODO: colors normalize
         xyz, features = self._break_up_pc(pointcloud)
         for module in self.SA_modules:
-            #print(xyz, features)
             xyz, features = module(xyz, features)
         features = einops.rearrange(features, "b c n -> b n c")
         return xyz, features
 
+
+# To debug overfitting from grasp only
+# class AttentionLayers(nn.Module):
+#     def __init__(self, embedding_dim, num_attn_layers, num_attn_heads):
+#         super().__init__()
+#
+#         self.attn_layers = nn.ModuleList()
+#         self.ffw_layers = nn.ModuleList()
+#         for _ in range(num_attn_layers):
+#             self.attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
+#             self.ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
+#
+#     def forward(self, point_tokens, point_pos, query_tokens):
+#         point_tokens = point_tokens + point_pos
+#         all_tokens = torch.cat([point_tokens, query_tokens], dim=1)
+#         all_tokens = einops.rearrange(all_tokens, "b n c -> n b c")
+#
+#         for i in range(len(self.attn_layers)):
+#             all_tokens = self.attn_layers[i](
+#                 query=all_tokens, value=all_tokens,
+#                 query_pos=None, value_pos=None
+#             )
+#             all_tokens = self.ffw_layers[i](all_tokens)
+#
+#         all_tokens = einops.rearrange(all_tokens, "n b c -> b n c")
+#         return all_tokens[:, :-1, :], all_tokens[:, -1:, :]
+
+
 class AttentionLayers(nn.Module):
     def __init__(self, embedding_dim, num_attn_layers, num_attn_heads):
         super().__init__()
-        self.points_self_attn_layers = nn.ModuleList()
-        # self.points_ffw_layers = nn.ModuleList()
-        # self.cross_attn_layers = nn.ModuleList()
-        # self.query_ffw_layers = nn.ModuleList()
-        # for _ in range(num_attn_layers):
-        #     self.points_self_attn_layers.append(RelativeCrossAttentionLayer(embedding_dim, num_attn_heads))
-        #     #self.points_self_attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
-        #     self.points_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
-        #     self.cross_attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
-        #     self.query_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
-        self.self_attn_layers = nn.ModuleList()
-        self.ffw_layers = nn.ModuleList()
-        for _ in range(num_attn_layers):
-            self.self_attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
-            self.ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
 
-    # TODO distinguish absolute relative positions
-    def forward(self, point_tokens, point_positional_embeddings, query_tokens):
-        #print("got:", point_tokens.shape, point_pos.shape, query_tokens.shape)
-        #query_pos = torch.zeros_like(query_tokens)
-        #all_tokens = torch.cat([point_tokens, query_tokens], dim=1)
-        #all_pos = torch.cat([point_pos, query_pos], dim=1)
-        #print("got", point_tokens.shape, point_positional_embeddings.shape, query_tokens.shape)
-        #point_tokens = point_tokens + point_positional_embeddings
-        #print("ppe", point_positional_embeddings[0, ...])
-        point_tokens = point_tokens + point_positional_embeddings
-        all_tokens = torch.cat([point_tokens, query_tokens], dim=1)
-        all_tokens = einops.rearrange(all_tokens, "b n c -> n b c")
-        #all_pos = einops.rearrange(all_pos, "b n c -> n b c")
-        #all_tokens += all_pos
-        #print(all_pos)
-        #print(all_tokens.shape, all_pos.shape)
-        for i in range(len(self.self_attn_layers)):
-            all_tokens = self.self_attn_layers[i](
+        self.points_attn_layers = nn.ModuleList()
+        self.points_ffw_layers = nn.ModuleList()
+        self.query_attn_layers = nn.ModuleList()
+        self.query_ffw_layers = nn.ModuleList()
+        for _ in range(num_attn_layers):
+            self.points_attn_layers.append(RelativeCrossAttentionLayer(embedding_dim, num_attn_heads))
+            self.points_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
+            self.query_attn_layers.append(RelativeCrossAttentionLayer(embedding_dim, num_attn_heads))
+            self.query_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
+
+    def forward(self, point_tokens, point_pos, query_tokens):
+        point_tokens = einops.rearrange(point_tokens, "b n c -> n b c")
+        query_tokens = einops.rearrange(query_tokens, "b n c -> n b c")
+
+        # Self-attention with relative 3D embeddings between object and grasp points
+        for i in range(len(self.points_attn_layers)):
+            point_tokens = self.points_attn_layers[i](
+                query=point_tokens, value=point_tokens,
+                query_pos=point_pos, value_pos=point_pos
+            )
+            point_tokens = self.points_ffw_layers[i](point_tokens)
+
+        all_tokens = torch.cat([point_tokens, query_tokens], dim=0)
+
+        # Self-attention without position embeddings between query and (object + grasp) points
+        for i in range(len(self.query_attn_layers)):
+            all_tokens = self.query_attn_layers[i](
                 query=all_tokens, value=all_tokens,
                 query_pos=None, value_pos=None
             )
-            #if i != len(self.self_attn_layers)-1:
-            all_tokens = self.ffw_layers[i](all_tokens)
+            all_tokens = self.query_ffw_layers[i](all_tokens)
+
         all_tokens = einops.rearrange(all_tokens, "n b c -> b n c")
         return all_tokens[:, :-1, :], all_tokens[:, -1:, :]
 
-        print("QQ", query_tokens)
-        print("input:", point_pos)
-        print("got:", point_tokens.shape, point_pos.shape, query_tokens.shape)
-        point_tokens = einops.rearrange(point_tokens, "b n c -> n b c")
-        point_pos = einops.rearrange(point_pos, "b n c -> n b c")
-        query_tokens = einops.rearrange(query_tokens, "b n c -> n b c")
-        print("to1:", point_tokens.shape, point_pos.shape, query_tokens.shape)
-        for i in range(len(self.cross_attn_layers)):
-            # new_point_tokens = self.points_self_attn_layers[i](
-            #     query=point_tokens, value=point_tokens,
-            #     query_pos=point_pos, value_pos=point_pos
-            # )
-            new_point_tokens = point_tokens
-            new_query_tokens = self.cross_attn_layers[i](
-                query=query_tokens, value=point_tokens,
-                #query_pos=None, value_pos=point_pos
-                query_pos=None, value_pos=point_pos
-            )
-            print("intermed:", new_query_tokens[:, 0, :]-new_query_tokens[:, 1, :])
-            point_tokens = self.points_ffw_layers[i](new_point_tokens)
-            query_tokens = self.points_ffw_layers[i](new_query_tokens)
-            print("nearly final:", query_tokens)
-        print("to2:", point_tokens.shape, point_pos.shape, query_tokens.shape)
-        point_tokens = einops.rearrange(point_tokens, "n b c -> b n c")
-        query_tokens = einops.rearrange(query_tokens, "n b c -> b n c")
-        print("to3:", point_tokens.shape, point_pos.shape, query_tokens.shape)
-        return point_tokens, query_tokens
 
 class BaselineNet(pl.LightningModule):
     def __init__(self, cfg):
         super().__init__()
-
-        print("constructing baseline")
-
         self.cfg = cfg
 
-        #point_features_size = 32
         self.pointnet = PointNetLayers(cfg.model.use_xyz)
-        #self.relative_position_encoding = RotaryPositionEncoding3D(cfg.embedding_size)
 
-        self.debug_net = nn.Sequential(
-            nn.Linear(7*3, self.cfg.embedding_size),
-            nn.ReLU(),
-            nn.Linear(self.cfg.embedding_size, 1)
-        )
+        # To debug overfitting from grasp only
+        # self.absolute_position_encoding = nn.Sequential(
+        #     nn.Linear(3, self.cfg.embedding_size),
+        #     nn.BatchNorm1d(7),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(self.cfg.embedding_size, self.cfg.embedding_size)
+        # )
+
+        self.relative_position_encoding = RotaryPositionEncoding3D(cfg.embedding_size)
 
         # TODO: maybe 6 not 7 points?
         self.grasp_embedding = nn.Embedding(7, self.cfg.embedding_size)
         self.query_embedding = nn.Embedding(1, self.cfg.embedding_size)
 
-        self.attention_layers = AttentionLayers(embedding_dim=self.cfg.embedding_size, num_attn_layers=self.cfg.num_attn_layers, num_attn_heads=self.cfg.num_attn_heads)
+        self.attention_layers = AttentionLayers(
+            embedding_dim=self.cfg.embedding_size,
+            num_attn_layers=self.cfg.num_attn_layers,
+            num_attn_heads=self.cfg.num_attn_heads
+        )
 
         self.prediction_layer = nn.Sequential(
             nn.Linear(self.cfg.embedding_size, 1)
         )
 
-        # TODO: back to PositionEmbeddingLearned Module?
-        #self.absolute_position_encoding = PositionEmbeddingLearned(3, self.cfg.embedding_size)
-        #self.absolute_position_encoding = nn.Linear(3, self.cfg.embedding_size)
+        # _, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
+        # self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
+        #
+        # task_vocab_size = len(TASKS)
+        # self.task_embedding = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
+        #
+        # class_vocab_size = len(self._class_list)
+        # self.class_embedding = nn.Embedding(class_vocab_size, self.cfg.embedding_size)
 
-        # self.absolute_position_encoding = nn.Sequential(
-        #     nn.Conv1d(3, self.cfg.embedding_size, kernel_size=1),
-        #     nn.BatchNorm1d(self.cfg.embedding_size),
-        #     nn.ReLU(inplace=True),
-        #     nn.Conv1d(self.cfg.embedding_size, self.cfg.embedding_size, kernel_size=1)
-        # )
-        self.absolute_position_encoding = nn.Sequential(
-            nn.Linear(3, self.cfg.embedding_size),
-            nn.BatchNorm1d(7),
-            nn.ReLU(inplace=True),
-            nn.Linear(self.cfg.embedding_size, self.cfg.embedding_size)
-        )
-
-        #_, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
-        #self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
-
-        #task_vocab_size = len(TASKS)
-        #self.task_embedding = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
-
-        #class_vocab_size = len(self._class_list)
-        #self.class_embedding = nn.Embedding(class_vocab_size, self.cfg.embedding_size)
-
-    def print_debug(self):
-        #print(self.query_embedding.weight.grad)
-        #print(self.grasp_embedding.weight.grad)
-        #print(self.attention_layers.points_ffw_layers[0].linear1.weight.grad)
-        print(self.debug_ffw.weight)
-        print(self.debug_ffw.weight.grad)
+    # To debug overfitting from grasp only
+    # def forward(self, pointcloud, grasp_xyz):
+    #     """
+    #     Arguments:
+    #         pointcloud: [B, N, 6] where last channel is (x,y,z,r,g,b)
+    #         grasp_xyz: [B, 7, 3] where last channel is (x,y,z)
+    #         tasks: id of tasks used lookup embedding dictionary
+    #         classes: id of object classes used lookup embedding dictionary
+    #
+    #     Return:
+    #         logits: binary classification logits
+    #     """
+    #     batch_size = pointcloud.shape[0]
+    #     grasp_xyz = grasp_xyz.float()
+    #
+    #     grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
+    #     grasp_pos = self.absolute_position_encoding(grasp_xyz)
+    #
+    #     query_tokens = self.query_embedding.weight.repeat(batch_size, 1, 1)
+    #     _, query_tokens = self.attention_layers(grasp_tokens, grasp_pos, query_tokens)
+    #
+    #     logits = self.prediction_layer(query_tokens[:, 0, :])
+    #     return logits
 
     def forward(self, pointcloud, grasp_xyz):
-        """ Forward pass of SGN
+        """
+        Arguments:
+            pointcloud: [B, N, 6] where last channel is (x,y,z,r,g,b)
+            grasp_xyz: [B, 7, 3] where last channel is (x,y,z)
+            tasks: id of tasks used lookup embedding dictionary
+            classes: id of object classes used lookup embedding dictionary
 
-        Args:
-            pointcloud: Variable(torch.cuda.FloatTensor) [B, N, 6] tensor, 
-                B is batch size, N is the number of points. The last channel is (x,y,z,feature)
-            grasp_pc: [B, 7, 3]
-            tasks: id of tasks used lookup emebdding dictionary
-            classes: id of object classes used lookup emebdding dictionary
-
-        returns:
+        Return:
             logits: binary classification logits
         """
-        #grasp_xyz = grasp_xyz * 20
-        #print(grasp_xyz)
-        #return self.debug_net(einops.rearrange(grasp_xyz.float(), "b n d -> b (n d)"))
-
-        #print(pointcloud[:, :5, :])
         batch_size = pointcloud.shape[0]
-
-        #print("input features", pointcloud.shape, grasp_pc.shape)
-
-        #pointcloud = pointcloud.float()
-        #object_xyz, object_tokens = self.pointnet(pointcloud)
-        #object_positional_encoding = self.absolute_position_encoding(object_xyz)
-
-        #print(xyz.shape, object_tokens.shape)
-
+        pointcloud = pointcloud.float()
         grasp_xyz = grasp_xyz.float()
-        grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
-        grasp_positional_encoding = self.absolute_position_encoding(grasp_xyz)
 
-        #point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
-        #point_positional_encoding = torch.cat([object_positional_encoding, grasp_positional_encoding], dim=1)
+        grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
+        grasp_pos = self.relative_position_encoding(grasp_xyz)
+
+        object_xyz, object_tokens = self.pointnet(pointcloud)
+        object_pos = self.relative_position_encoding(object_xyz)
+
+        point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
+        point_pos = torch.cat([object_pos, grasp_pos], dim=1)
 
         query_tokens = self.query_embedding.weight.repeat(batch_size, 1, 1)
+        _, query_tokens = self.attention_layers(point_tokens, point_pos, query_tokens)
 
-        _, query_tokens = self.attention_layers(grasp_tokens, grasp_positional_encoding, query_tokens)
-
-        # pick only token 0 as there is only one query token
         logits = self.prediction_layer(query_tokens[:, 0, :])
-
-        return logits
-
-        relative_object_pos = self.relative_position_encoding(xyz)
-        relative_grasp_pos = self.relative_position_encoding(grasp_xyz)
-        point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
-        point_pos = torch.cat([relative_object_pos, relative_grasp_pos], dim=1)
-        
-        #point_tokens = einops.rearrange(point_tokens, "b n c -> n b c")
-        point_pos = einops.rearrange(point_pos, "b n c x -> n b c x")
-        #point_pos = einops.rearrange(point_pos, "b n c -> n b c")
-
-        #print("embeddings:", object_pos.shape, object_tokens.shape, grasp_pos.shape, grasp_tokens.shape, query_tokens.shape)
-        #print("embeddings:", point_tokens.shape, point_pos.shape, query_tokens.shape)
-
-        #object_tokens, grasp_tokens, query_token = self.attention_layers(object_tokens, grasp_tokens, query_token)
-        point_tokens, query_tokens = self.attention_layers(point_tokens, point_pos, query_tokens)
-
-        #shape_embedding = self.fc_layer(features.squeeze(-1))
-        #logits = self.fc_layer2(embedding)
-
-        #print("tokens result shape:", point_tokens.shape, query_tokens.shape)
-
-        #TODO [0]
-        logits = self.prediction_layer(query_tokens[0])
-        #print("logits:", logits.shape)
-
         return logits
 
     def training_step(self, batch, batch_idx):
-
         object_pcs, grasp_pcs, labels = batch
+
+        # print("grasp_pcs:", grasp_pcs.shape, grasp_pcs.min(), grasp_pcs.mean(), grasp_pcs.max())
+        # print("labels:", labels.shape, labels.min(), labels.mean(), labels.max())
 
         logits = self.forward(object_pcs, grasp_pcs)
         logits = logits.squeeze()
 
-        #print("res:", logits, ", gt:", labels)
         loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
-        #print("loss:", loss)
-        
+
         with torch.no_grad():
             pred = torch.round(torch.sigmoid(logits))
-            #print("predictions:", pred, labels)
             acc = (pred == labels).float().mean()
 
         log = dict(train_loss=loss, train_acc=acc)
@@ -353,6 +304,13 @@ class BaselineNet(pl.LightningModule):
         )
 
         return reduced_outputs
+
+    def print_debug(self):
+        #print(self.query_embedding.weight.grad)
+        #print(self.grasp_embedding.weight.grad)
+        #print(self.attention_layers.points_ffw_layers[0].linear1.weight.grad)
+        print(self.debug_ffw.weight)
+        print(self.debug_ffw.weight.grad)
 
     def configure_optimizers(self):
         # TODO: pruned some fancy scheduling

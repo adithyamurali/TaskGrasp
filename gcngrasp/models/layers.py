@@ -3,6 +3,7 @@ import torch.nn.functional as F
 
 from .multihead_custom_attention import MultiheadCustomAttention
 
+
 class CrossAttentionLayer(nn.Module):
     def __init__(self, embedding_dim, num_heads, dropout=0.0):
         super().__init__()
