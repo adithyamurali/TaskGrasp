@@ -234,8 +234,10 @@ class BaselineData(data.Dataset):
                 grasp = np.load(grasp_file)
                 self._grasps[grasp_id] = grasp
 
+            task_id = self._tasks.index(task)
+
             self._data.append(
-                (obj, grasp_id, task, label))
+                (obj, grasp_id, task_id, label))
             self._data_labels.append(int(label))
             if label:
                 correct_counter += 1
@@ -274,7 +276,7 @@ class BaselineData(data.Dataset):
 
     def __getitem__(self, idx):
         #print("accessing", idx)
-        obj, grasp_id, task, label = self._data[idx]
+        obj, grasp_id, task_id, label = self._data[idx]
         obj_data = self._obj_data[obj]
         if self._observation_type == 'point_cloud':
             pc = regularize_pc_point_count(
@@ -323,7 +325,7 @@ class BaselineData(data.Dataset):
         #return images, world_coordinates, grasp, task_id, class_id, instance_id, label
         if self._observation_type == 'point_cloud':
             #print("returning", grasp_pc)
-            return pc, grasp_pc, label
+            return pc, grasp_pc, task_id, label
         else:
             return images, depth, camera_info, grasp_pc, label
 

@@ -92,34 +92,6 @@ class PointNetLayers(nn.Module):
         features = einops.rearrange(features, "b c n -> b n c")
         return xyz, features
 
-
-# To debug overfitting from grasp only
-# class AttentionLayers(nn.Module):
-#     def __init__(self, embedding_dim, num_attn_layers, num_attn_heads):
-#         super().__init__()
-#
-#         self.attn_layers = nn.ModuleList()
-#         self.ffw_layers = nn.ModuleList()
-#         for _ in range(num_attn_layers):
-#             self.attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
-#             self.ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
-#
-#     def forward(self, point_tokens, point_pos, query_tokens):
-#         point_tokens = point_tokens + point_pos
-#         all_tokens = torch.cat([point_tokens, query_tokens], dim=1)
-#         all_tokens = einops.rearrange(all_tokens, "b n c -> n b c")
-#
-#         for i in range(len(self.attn_layers)):
-#             all_tokens = self.attn_layers[i](
-#                 query=all_tokens, value=all_tokens,
-#                 query_pos=None, value_pos=None
-#             )
-#             all_tokens = self.ffw_layers[i](all_tokens)
-#
-#         all_tokens = einops.rearrange(all_tokens, "n b c -> b n c")
-#         return all_tokens[:, :-1, :], all_tokens[:, -1:, :]
-
-
 class AttentionLayers(nn.Module):
     def __init__(self, embedding_dim, num_attn_layers, num_attn_heads):
         super().__init__()
@@ -134,9 +106,10 @@ class AttentionLayers(nn.Module):
             self.query_attn_layers.append(RelativeCrossAttentionLayer(embedding_dim, num_attn_heads))
             self.query_ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
 
-    def forward(self, point_tokens, point_pos, query_tokens):
+    def forward(self, point_tokens, point_pos, query_tokens, task_tokens):
         point_tokens = einops.rearrange(point_tokens, "b n c -> n b c")
         query_tokens = einops.rearrange(query_tokens, "b n c -> n b c")
+        task_tokens = einops.rearrange(task_tokens, "b n c -> n b c")
 
         # Self-attention with relative 3D embeddings between object and grasp points
         for i in range(len(self.points_attn_layers)):
@@ -146,7 +119,7 @@ class AttentionLayers(nn.Module):
             )
             point_tokens = self.points_ffw_layers[i](point_tokens)
 
-        all_tokens = torch.cat([point_tokens, query_tokens], dim=0)
+        all_tokens = torch.cat([point_tokens, task_tokens, query_tokens], dim=0)
 
         # Self-attention without position embeddings between query and (object + grasp) points
         for i in range(len(self.query_attn_layers)):
@@ -194,37 +167,13 @@ class BaselineNet(pl.LightningModule):
         # _, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
         # self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
         #
-        # task_vocab_size = len(TASKS)
-        # self.task_embedding = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
+        task_vocab_size = len(TASKS)
+        self.task_embedding = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
         #
         # class_vocab_size = len(self._class_list)
         # self.class_embedding = nn.Embedding(class_vocab_size, self.cfg.embedding_size)
 
-    # To debug overfitting from grasp only
-    # def forward(self, pointcloud, grasp_xyz):
-    #     """
-    #     Arguments:
-    #         pointcloud: [B, N, 6] where last channel is (x,y,z,r,g,b)
-    #         grasp_xyz: [B, 7, 3] where last channel is (x,y,z)
-    #         tasks: id of tasks used lookup embedding dictionary
-    #         classes: id of object classes used lookup embedding dictionary
-    #
-    #     Return:
-    #         logits: binary classification logits
-    #     """
-    #     batch_size = pointcloud.shape[0]
-    #     grasp_xyz = grasp_xyz.float()
-    #
-    #     grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
-    #     grasp_pos = self.absolute_position_encoding(grasp_xyz)
-    #
-    #     query_tokens = self.query_embedding.weight.repeat(batch_size, 1, 1)
-    #     _, query_tokens = self.attention_layers(grasp_tokens, grasp_pos, query_tokens)
-    #
-    #     logits = self.prediction_layer(query_tokens[:, 0, :])
-    #     return logits
-
-    def forward(self, pointcloud, grasp_xyz):
+    def forward(self, pointcloud, grasp_xyz, task_ids):
         """
         Arguments:
             pointcloud: [B, N, 6] where last channel is (x,y,z,r,g,b)
@@ -248,19 +197,20 @@ class BaselineNet(pl.LightningModule):
         point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
         point_pos = torch.cat([object_pos, grasp_pos], dim=1)
 
+        task_tokens = self.task_embedding[task_ids]
         query_tokens = self.query_embedding.weight.repeat(batch_size, 1, 1)
-        _, query_tokens = self.attention_layers(point_tokens, point_pos, query_tokens)
+        _, query_tokens = self.attention_layers(point_tokens, point_pos, query_tokens, task_tokens)
 
         logits = self.prediction_layer(query_tokens[:, 0, :])
         return logits
 
     def training_step(self, batch, batch_idx):
-        object_pcs, grasp_pcs, labels = batch
+        object_pcs, grasp_pcs, task_ids, labels = batch
 
         # print("grasp_pcs:", grasp_pcs.shape, grasp_pcs.min(), grasp_pcs.mean(), grasp_pcs.max())
         # print("labels:", labels.shape, labels.min(), labels.mean(), labels.max())
 
-        logits = self.forward(object_pcs, grasp_pcs)
+        logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
 
         loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
@@ -276,9 +226,9 @@ class BaselineNet(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         return dict(val_loss=torch.tensor([0.0]), val_acc=torch.tensor([0.0]))
 
-        object_pcs, grasp_pcs, labels = batch
+        object_pcs, grasp_pcs, task_ids, labels = batch
 
-        logits = self.forward(object_pcs, grasp_pcs)
+        logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
 
         #try:
