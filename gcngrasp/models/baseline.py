@@ -92,6 +92,7 @@ class PointNetLayers(nn.Module):
         features = einops.rearrange(features, "b c n -> b n c")
         return xyz, features
 
+
 class AttentionLayers(nn.Module):
     def __init__(self, embedding_dim, num_attn_layers, num_attn_heads):
         super().__init__()
@@ -140,14 +141,6 @@ class BaselineNet(pl.LightningModule):
 
         self.pointnet = PointNetLayers(cfg.model.use_xyz)
 
-        # To debug overfitting from grasp only
-        # self.absolute_position_encoding = nn.Sequential(
-        #     nn.Linear(3, self.cfg.embedding_size),
-        #     nn.BatchNorm1d(7),
-        #     nn.ReLU(inplace=True),
-        #     nn.Linear(self.cfg.embedding_size, self.cfg.embedding_size)
-        # )
-
         self.relative_position_encoding = RotaryPositionEncoding3D(cfg.embedding_size)
 
         # TODO: maybe 6 not 7 points?
@@ -166,10 +159,10 @@ class BaselineNet(pl.LightningModule):
 
         # _, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
         # self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
-        #
+
         task_vocab_size = len(TASKS)
         self.task_embedding = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
-        #
+
         # class_vocab_size = len(self._class_list)
         # self.class_embedding = nn.Embedding(class_vocab_size, self.cfg.embedding_size)
 
@@ -197,8 +190,9 @@ class BaselineNet(pl.LightningModule):
         point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
         point_pos = torch.cat([object_pos, grasp_pos], dim=1)
 
-        task_tokens = self.task_embedding[task_ids]
+        task_tokens = self.task_embedding(task_ids).unsqueeze(1)
         query_tokens = self.query_embedding.weight.repeat(batch_size, 1, 1)
+
         _, query_tokens = self.attention_layers(point_tokens, point_pos, query_tokens, task_tokens)
 
         logits = self.prediction_layer(query_tokens[:, 0, :])
@@ -208,7 +202,8 @@ class BaselineNet(pl.LightningModule):
         object_pcs, grasp_pcs, task_ids, labels = batch
 
         # print("grasp_pcs:", grasp_pcs.shape, grasp_pcs.min(), grasp_pcs.mean(), grasp_pcs.max())
-        # print("labels:", labels.shape, labels.min(), labels.mean(), labels.max())
+        # print("labels:", labels.shape, labels)
+        # print("task_ids:", task_ids.shape, task_ids)
 
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
