@@ -19,6 +19,7 @@ from pprint import pprint
 
 BASE_DIR = os.path.dirname(__file__)
 sys.path.append(os.path.join(BASE_DIR, '../../'))
+sys.path.append(os.path.join(BASE_DIR, '../'))
 from visualize import draw_scene, get_gripper_control_points
 from geometry_utils import regularize_pc_point_count
 from data.SGNLoader import pc_normalize, get_task1_hits
@@ -83,8 +84,14 @@ def visualize(data_dir, obj, view_num):
     print(mask.shape)
     plt.imshow(mask)
     plt.show()
-    exit(0)
 
+def visualize_pc(object_pc, grasp_pc):
+    grasp_color = torch.Tensor([0, 255, 0]).double().repeat((grasp_pc.shape[0], 1))
+    all_pc = torch.cat(
+        [object_pc, torch.cat([grasp_pc, grasp_color], dim=1)],
+        dim=0
+    )
+    draw_scene(pc=all_pc)
 
 class BaselineData(data.Dataset):
     def __init__(
@@ -315,14 +322,6 @@ class BaselineData(data.Dataset):
 
         label = float(label)
 
-        #gc = np.repeat(np.array([[255, 0, 0]]), grasp_pc.shape[0], axis=0)
-        #print(gc.shape)
-        #grasp_color_pc = np.concatenate([grasp_pc, gc], axis=1)
-        #print(grasp_color_pc.shape)
-
-        #draw_scene(np.concatenate([pc, grasp_color_pc], axis=0), grasps=[grasp])
-
-        #return images, world_coordinates, grasp, task_id, class_id, instance_id, label
         if self._observation_type == 'point_cloud':
             #print("returning", grasp_pc)
             return pc, grasp_pc, task_id, label
@@ -331,64 +330,6 @@ class BaselineData(data.Dataset):
 
     def __len__(self):
         return self._len
-
-"""
-    @staticmethod
-    def collate_fn(batch):
-        #This function overrides defaul batch collate function and aggregates 
-        #the graph and point clound data across the batch into a single graph tensor
-
-        pc = torch.stack([torch.as_tensor(_[0]) for _ in batch], dim=0)
-        pc_color = torch.stack([torch.as_tensor(_[1]) for _ in batch], dim=0)
-        task_id = torch.stack([torch.tensor(_[2]) for _ in batch], dim=0)
-        task_gid = torch.stack([torch.tensor(_[3]) for _ in batch], dim=0)
-        instance_gid = torch.stack([torch.tensor(_[4]) for _ in batch], dim=0)
-        obj_class_gid = torch.stack([torch.tensor(_[5]) for _ in batch], dim=0)
-        class_id = torch.stack([torch.tensor(_[6]) for _ in batch], dim=0)
-        instance_id = torch.stack([torch.tensor(_[7]) for _ in batch], dim=0)
-        grasp = torch.stack([torch.tensor(_[8]) for _ in batch], dim=0)
-        node_x_idx = torch.cat([torch.tensor(_[9]) for _ in batch], dim=0)
-        label = torch.stack([torch.tensor(_[11]) for _ in batch], dim=0)
-
-
-        edge_indices = []
-        batch_size = pc.shape[0]
-        offsets = np.zeros(batch_size + 1)
-
-        # TODO: Assumption, the sub-graphs are of the same size (i.e. passing
-        # in the full graph)
-        for idx, data_pt in enumerate(batch):
-            node_x_idx_batch = data_pt[9]
-            edge_index_batch = data_pt[10]
-            edge_index_batch += int(offsets[idx])
-            offsets[idx + 1] = offsets[idx] + node_x_idx_batch.shape[0]
-            edge_index_batch = torch.tensor(edge_index_batch)
-            edge_indices.append(edge_index_batch)
-        edge_index = torch.cat(edge_indices, dim=1)
-
-        # Add grasp nodes
-        grasp_edges = []
-        for idx in range(batch_size):
-            node_src = obj_class_gid[idx].item() + int(offsets[idx])
-            node_dest = node_x_idx.shape[0] + idx
-            grasp_edges += [(node_src, node_dest), (node_dest, node_src)]
-        grasp_edges = torch.tensor(np.array(grasp_edges).T)
-        edge_index = torch.cat([edge_index, grasp_edges], dim=1)
-
-        # Add latent vector
-        latent = np.zeros(node_x_idx.shape[0])
-        for idx, data_pt in enumerate(batch):
-            task_gidx = task_gid[idx].item() + int(offsets[idx])
-            latent[task_gidx] = 1
-
-            obj_class_gidx = obj_class_gid[idx].item() + int(offsets[idx])
-            latent[obj_class_gidx] = 1
-
-        latent = torch.tensor(np.concatenate([latent, np.ones(batch_size)]))
-        assert latent.shape[0] == node_x_idx.shape[0] + batch_size
-
-        return pc, pc_color, task_id, task_gid, instance_gid, obj_class_gid, class_id, instance_id, grasp, node_x_idx, latent, edge_index, label
-"""
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GCN training")
@@ -428,7 +369,8 @@ if __name__ == "__main__":
         instance_agnostic_mode=1
     )
 
-    # TODO: what is this weighted sampler?
+    # TODO: enable weighted sampler to have equal number of positive/negative samples
+    # also change in train loop
     """
     weights = dset.weights
     sampler = torch.utils.data.sampler.WeightedRandomSampler(
@@ -441,9 +383,11 @@ if __name__ == "__main__":
     """
     dloader = torch.utils.data.DataLoader(
         dset,
-        batch_size=16)
+        batch_size=1)
 
     with torch.no_grad():
         for batch in dloader:
-            #images, depth, camera_info, grasp_pc, label = batch
-            pc, grasp_pc, label = batch
+            object_pc, grasp_pc, task_id, label = batch
+            task_name = TASKS[task_id]
+            print(f"visualizing for task {task_name} ({task_id.numpy()[0]}) -> label {label.numpy()[0]}")
+            visualize_pc(object_pc[0], grasp_pc[0])
