@@ -199,7 +199,7 @@ class BaselineNet(pl.LightningModule):
         return logits
 
     def training_step(self, batch, batch_idx):
-        object_pcs, grasp_pcs, task_ids, labels = batch
+        object_pcs, grasp_pcs, task_ids, _, _, labels = batch
 
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
@@ -215,7 +215,7 @@ class BaselineNet(pl.LightningModule):
         return dict(loss=loss, log=log, progress_bar=dict(train_acc=acc))
 
     def validation_step(self, batch, batch_idx):
-        object_pcs, grasp_pcs, task_ids, labels = batch
+        object_pcs, grasp_pcs, task_ids, _, _, labels = batch
 
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()

@@ -117,7 +117,7 @@ def main(cfg, save=False, visualize=False, experiment_dir=None):
             pc_scaling=cfg.pc_scaling,
             use_task1_grasps=cfg.use_task1_grasps
         )
-    elif cfg.dataset_class == 'BaslineData':
+    elif cfg.dataset_class == 'BaselineData':
         dset = BaselineData(
             cfg.num_points,
             transforms=None,
@@ -134,10 +134,7 @@ def main(cfg, save=False, visualize=False, experiment_dir=None):
             pc_scaling=cfg.pc_scaling,
             use_task1_grasps=cfg.use_task1_grasps,
             graph_data_path=cfg.graph_data_path,
-            include_reverse_relations=cfg.include_reverse_relations,
-            subgraph_sampling=cfg.subgraph_sampling,
-            sampling_radius=cfg.sampling_radius,
-            instance_agnostic_mode=cfg.instance_agnostic_mode
+            include_reverse_relations=cfg.include_reverse_relations
         )
 
     if cfg.algorithm_class == 'SemanticGraspNet':
@@ -188,7 +185,7 @@ def main(cfg, save=False, visualize=False, experiment_dir=None):
         cfg.base_dir, cfg.folder_dir, 'task1_results.txt')
     assert os.path.exists(task1_results_file)
 
-    if cfg.dataset_class in ['SGNTaskGrasp', 'GCNTaskGrasp']:
+    if cfg.dataset_class in ['SGNTaskGrasp', 'GCNTaskGrasp', 'BaselineData']:
         object_task_pairs = get_ot_pairs_taskgrasp(task1_results_file)
         TASK2_ot_pairs = object_task_pairs['True'] + \
             object_task_pairs['Weak True']
@@ -250,6 +247,20 @@ def main(cfg, save=False, visualize=False, experiment_dir=None):
                     latent,
                     edge_index)
                 logits = logits.squeeze()
+
+            elif cfg.algorithm_class == 'Baseline':
+                # TODO: grasp missing?!
+                object_pcs, grasp_pcs, tasks, instances, classes, labels = batch
+
+                object_pcs = object_pcs.type(torch.cuda.FloatTensor)
+                grasp_pcs = grasp_pcs.to(DEVICE)
+                tasks = tasks.to(DEVICE)
+                labels = labels.to(DEVICE)
+                logits = model.forward(object_pcs, grasp_pcs, tasks)
+                logits = logits.squeeze()
+
+                pc = object_pcs[:, :, :3]
+                pc_color = object_pcs[:, :, 3:]
 
             probs = torch.sigmoid(logits)
             preds = torch.round(probs)

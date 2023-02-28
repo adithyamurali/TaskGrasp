@@ -46,6 +46,11 @@ def model_statistics(model, cfg):
     print(f"pointnet layers: {num_parameters(model.pointnet)}")
     print(f"total: {total_params}")
 
+    print("all vars:")
+    for var_name in model.state_dict():
+        print(var_name)
+
+
 def data_statistics(dataset: BaselineData):
     stats, label_per_obj_task = dataset.get_statistics()
     print(f"label cnt: {stats['label cnt']}")
@@ -82,7 +87,7 @@ def dataloader_statistics(dataloader):
     cnt_label = [0, 0]
     item_cnt = 0
     for batch in dloader:
-        object_pc, grasp_pc, task_id, label = batch
+        object_pc, grasp_pc, task_id, _, _, label = batch
         item_cnt += label.shape[0]
         for i in range(label.shape[0]):
             cur_label = int(label[i].item())
@@ -102,7 +107,7 @@ def pointcloud_stats(dataloader):
         res.append((mean.numpy(), std.numpy(), mins.numpy(), maxs.numpy()))
 
     for batch in dloader:
-        object_pc, grasp_pc, task_id, label = batch
+        object_pc, grasp_pc, task_id, _, _, label = batch
         object_pc = object_pc[:, :, :3]
         for i in range(object_pc.shape[0]):
             pc_stats(object_pc[i])
@@ -151,7 +156,7 @@ if __name__ == "__main__":
     #dset = model.val_dset
     dloader = model.train_dataloader()
 
-    #model_statistics(model, cfg)
+    model_statistics(model, cfg)
     #data_statistics(dset)
     #dataloader_statistics(dloader)
-    pointcloud_stats(dloader)
+    #pointcloud_stats(dloader)

@@ -60,10 +60,7 @@ class BaselineData(data.Dataset):
             pc_scaling=True,
             use_task1_grasps=True,
             graph_data_path='',
-            include_reverse_relations=True,
-            subgraph_sampling=True,
-            sampling_radius=2,
-            instance_agnostic_mode=1):
+            include_reverse_relations=True):
         """
 
         Args:
@@ -84,7 +81,6 @@ class BaselineData(data.Dataset):
                 rejected in Stage 1 (and add these grasps are negative samples)
 
             Deprecated args (not used anymore): normal, download, 
-                instance_agnostic_mode, subgraph_sampling, sampling_radius
         """
         super().__init__()
         self._pc_scaling = pc_scaling
@@ -130,7 +126,7 @@ class BaselineData(data.Dataset):
         self._data = []
         self._obj_data = {}
         self._grasps = {}
-        #self._object_classes = class_list
+        self._object_classes = class_list
 
         start = time.time()
         correct_counter = 0
@@ -145,12 +141,14 @@ class BaselineData(data.Dataset):
 
         good_ind = []
         # TODO: change back to full data
-        #print(random.shuffle(lines))
+        random.shuffle(lines)
         #for i in tqdm.trange(len(lines[:2000])):
-        for i in tqdm.trange(len(lines[:100])):
+        for i in tqdm.trange(len(lines[:1000])):
             obj, obj_class, grasp_id, task, label = parse_line(lines[i])
+            obj_class = self._map_obj2class[obj]
+            # using updated class from wordnet
             self.update_statistics(obj, obj_class, grasp_id, task, label)
-            #obj_class = self._map_obj2class[obj]
+
             all_object_instances.append(obj)
             self._object_task_pairs_dataset.append("{}-{}".format(obj, task))
 
@@ -172,9 +170,10 @@ class BaselineData(data.Dataset):
                 self._grasps[grasp_id] = grasp
 
             task_id = self._tasks.index(task)
+            class_id = self._object_classes.index(obj_class)
 
             self._data.append(
-                (obj, grasp_id, task_id, label))
+                (obj, grasp_id, task_id, obj, class_id, label))
             self._data_labels.append(int(label))
             if label:
                 correct_counter += 1
@@ -256,7 +255,7 @@ class BaselineData(data.Dataset):
         return weights_data
 
     def __getitem__(self, idx):
-        obj, grasp_id, task_id, label = self._data[idx]
+        obj, grasp_id, task_id, obj, class_id, label = self._data[idx]
         obj_data = self._obj_data[obj]
         pc = regularize_pc_point_count(
             obj_data, self._num_points, use_farthest_point=False)
@@ -284,9 +283,11 @@ class BaselineData(data.Dataset):
         #if self._transforms is not None:
         #    pc = self._transforms(pc)
 
+        instance_id = self._all_object_instances.index(obj)
+
         label = float(label)
 
-        return pc, grasp_pc, task_id, label
+        return pc, grasp_pc, task_id, instance_id, class_id, label
 
     def __len__(self):
         return self._len
@@ -323,10 +324,7 @@ if __name__ == "__main__":
         pc_scaling=True,
         use_task1_grasps=True,
         graph_data_path='kb2_task_wn_noi',
-        include_reverse_relations=True,
-        subgraph_sampling=True,
-        sampling_radius=2,
-        instance_agnostic_mode=1
+        include_reverse_relations=True
     )
 
     # TODO: enable weighted sampler to have equal number of positive/negative samples
@@ -346,7 +344,7 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         for batch in dloader:
-            object_pc, grasp_pc, task_id, label = batch
+            object_pc, grasp_pc, task_id, _, _, label = batch
             task_name = TASKS[task_id]
             print(f"visualizing for task {task_name} ({task_id.numpy()[0]}) -> label {label.numpy()[0]}")
             visualize_pc(object_pc[0], grasp_pc[0])
