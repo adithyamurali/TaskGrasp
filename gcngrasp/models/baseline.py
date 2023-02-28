@@ -30,7 +30,7 @@ class PointNetLayers(nn.Module):
         self.SA_modules.append(
             PointnetSAModuleMSG(
                 npoint=1024*4,
-                radii=[0.1, 0.2, 0.4],
+                radii=[0.1, 0.2, 0.2],
                 nsamples=[16, 32, 128],
                 mlps=[
                     [input_embedding_size, 4, 8, 8],
@@ -46,7 +46,7 @@ class PointNetLayers(nn.Module):
         self.SA_modules.append(
             PointnetSAModuleMSG(
                 npoint=1024,
-                radii=[0.2, 0.4, 0.8],
+                radii=[0.2, 0.2, 0.4],
                 nsamples=[32, 64, 128],
                 mlps=[
                     [input_channels, 32, 16, 8],
@@ -201,10 +201,6 @@ class BaselineNet(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         object_pcs, grasp_pcs, task_ids, labels = batch
 
-        # print("grasp_pcs:", grasp_pcs.shape, grasp_pcs.min(), grasp_pcs.mean(), grasp_pcs.max())
-        # print("labels:", labels.shape, labels)
-        # print("task_ids:", task_ids.shape, task_ids)
-
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
 
@@ -231,7 +227,6 @@ class BaselineNet(pl.LightningModule):
         #        logits = logits.unsqueeze(-1)
         #        loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
         pred = torch.round(torch.sigmoid(logits))
-        # TODO: check correct shape, not additional trailing 1-dim
         acc = (pred == labels).float().mean()
 
         return dict(val_loss=loss, val_acc=acc)
@@ -266,8 +261,6 @@ class BaselineNet(pl.LightningModule):
         )
 
         return optimizer
-
-    # TODO pruned update_embedding_weights()
 
     def prepare_data(self):
         """ Initializes datasets used for training, validation and testing """
@@ -319,7 +312,6 @@ class BaselineNet(pl.LightningModule):
             self._train_sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, len(weights))
 
     def _build_dataloader(self, dset, mode):
-        # TODO: removed weighted sampling
         if self.cfg.weighted_sampling and mode == "train":
             return DataLoader(
                 dset,

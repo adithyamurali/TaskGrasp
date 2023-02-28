@@ -147,7 +147,7 @@ class BaselineData(data.Dataset):
         # TODO: change back to full data
         #print(random.shuffle(lines))
         #for i in tqdm.trange(len(lines[:2000])):
-        for i in tqdm.trange(len(lines[:1000])):
+        for i in tqdm.trange(len(lines[:100])):
             obj, obj_class, grasp_id, task, label = parse_line(lines[i])
             self.update_statistics(obj, obj_class, grasp_id, task, label)
             #obj_class = self._map_obj2class[obj]
@@ -276,7 +276,8 @@ class BaselineData(data.Dataset):
         all_pc = np.concatenate([pc[:, :3], grasp_pc], axis=0)
         all_pc = pc_normalize(all_pc, grasp=None, pc_scaling=self._pc_scaling)
         pc[:, :3] = all_pc[:pc.shape[0], :]
-        grasp_pc = all_pc[-grasp_pc.shape[0], :]
+        grasp_pc = all_pc[-grasp_pc.shape[0]:, :]
+
         #pc = np.concatenate([pc, latent], axis=1)
 
         # TODO: data augmentations?

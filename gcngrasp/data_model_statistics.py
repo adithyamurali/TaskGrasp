@@ -94,7 +94,6 @@ def dataloader_statistics(dataloader):
 def pointcloud_stats(dataloader):
     res = []
     def pc_stats(pc):
-        print(pc.shape)
         mean = torch.mean(pc, dim=0)
         pc = pc - mean
         std = torch.std(pc, dim=0)
