@@ -7,11 +7,6 @@ embedding_model: numberbatch
 embedding_size: '60'
 #embedding_size: '8'
 folder_dir: taskgrasp
-gcn_conv_type: GCNConv
-gcn_num_layers: '6'
-gcn_skip_mode: '0'
-graph_data_path: kb2_task_wn_noi
-include_reverse_relations: 'True'
 instance_agnostic_mode: '1'
 name: baseline_o_0
 pc_scaling: 'True'
@@ -22,7 +17,7 @@ split_version: '1'
 subgraph_sampling: 'True'
 use_task1_grasps: 'True'
 weighted_sampling: 'True'
-#num_attn_layers: 2
-#num_attn_heads: 2
 num_attn_layers: 2
 num_attn_heads: 4
+#num_attn_layers: 8
+#num_attn_heads: 6

@@ -120,15 +120,15 @@ class AttentionLayers(nn.Module):
             )
             point_tokens = self.points_ffw_layers[i](point_tokens)
 
-        all_tokens = torch.cat([point_tokens, task_tokens, query_tokens], dim=0)
-
-        # Self-attention without position embeddings between query and (object + grasp) points
-        for i in range(len(self.query_attn_layers)):
+            all_tokens = torch.cat([point_tokens, task_tokens, query_tokens], dim=0)
             all_tokens = self.query_attn_layers[i](
                 query=all_tokens, value=all_tokens,
                 query_pos=None, value_pos=None
             )
             all_tokens = self.query_ffw_layers[i](all_tokens)
+            point_tokens = all_tokens[:-2, :, :]
+            task_tokens = all_tokens[-2:-1, :, :]
+            query_tokens = query_tokens[-1:, :, :]
 
         all_tokens = einops.rearrange(all_tokens, "n b c -> b n c")
         return all_tokens[:, :-1, :], all_tokens[:, -1:, :]
@@ -157,8 +157,8 @@ class BaselineNet(pl.LightningModule):
             nn.Linear(self.cfg.embedding_size, 1)
         )
 
-        # _, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
-        # self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
+        _, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
+        self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
 
         task_vocab_size = len(TASKS)
         self.task_embedding = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
@@ -219,8 +219,6 @@ class BaselineNet(pl.LightningModule):
         return dict(loss=loss, log=log, progress_bar=dict(train_acc=acc))
 
     def validation_step(self, batch, batch_idx):
-        return dict(val_loss=torch.tensor([0.0]), val_acc=torch.tensor([0.0]))
-
         object_pcs, grasp_pcs, task_ids, labels = batch
 
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
@@ -285,8 +283,8 @@ class BaselineNet(pl.LightningModule):
                 folder_dir=self.cfg.folder_dir,
                 normal=self.cfg.model.use_normal,
                 tasks=TASKS,
-                #map_obj2class=self.name2wn,
-                #class_list=self._class_list,
+                map_obj2class=self.name2wn,
+                class_list=self._class_list,
                 split_mode=self.cfg.split_mode,
                 split_idx=self.cfg.split_idx,
                 split_version=self.cfg.split_version,
@@ -305,8 +303,8 @@ class BaselineNet(pl.LightningModule):
                 folder_dir=self.cfg.folder_dir,
                 normal=self.cfg.model.use_normal,
                 tasks=TASKS,
-                #map_obj2class=self.name2wn,
-                #class_list=self._class_list,
+                map_obj2class=self.name2wn,
+                class_list=self._class_list,
                 split_mode=self.cfg.split_mode,
                 split_idx=self.cfg.split_idx,
                 split_version=self.cfg.split_version,
@@ -316,19 +314,30 @@ class BaselineNet(pl.LightningModule):
         else:
             raise ValueError('Invalid dataset class: {}'.format(self.cfg.dataset_class))
 
+        if self.cfg.weighted_sampling:
+            weights = self.train_dset.weights
+            self._train_sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, len(weights))
+
     def _build_dataloader(self, dset, mode):
         # TODO: removed weighted sampling
-        return DataLoader(
-            dset,
-            batch_size=self.cfg.batch_size,
-            # TODO: shuffle
-            shuffle=mode == "train",
-            num_workers=4,
-            pin_memory=True,
-            # TODO
-            #drop_last=mode == "train"
-            drop_last=mode == "train"
-        )
+        if self.cfg.weighted_sampling and mode == "train":
+            return DataLoader(
+                dset,
+                batch_size=self.cfg.batch_size,
+                num_workers=4,
+                pin_memory=True,
+                drop_last=mode == "train",
+                sampler=self._train_sampler
+            )
+        else:
+            return DataLoader(
+                dset,
+                batch_size=self.cfg.batch_size,
+                shuffle=mode == "train",
+                num_workers=4,
+                pin_memory=True,
+                drop_last=mode == "train"
+            )
 
     def train_dataloader(self):
         return self._build_dataloader(self.train_dset, mode="train")

@@ -3,8 +3,8 @@ from yacs.config import CfgNode as CN
 # Miscellaneous configs
 _C = CN()
 _C.weight_file = ''
-#_C.batch_size = 16
-_C.batch_size = 4
+_C.batch_size = 16
+#_C.batch_size = 4
 _C.num_points = 4096
 _C.epochs = 400
 _C.gpus = [0, ]

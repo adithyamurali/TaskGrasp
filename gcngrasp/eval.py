@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 import pickle
-import omegaconf
+#import omegaconf
 import pytorch_lightning as pl
 import torch
 import numpy as np
@@ -16,11 +16,13 @@ import torch.nn.functional as F
 
 from models.sgn import SemanticGraspNet
 from models.gcn import GCNGrasp
+from models.baseline import BaselineNet
 from data.SGNLoader import SGNTaskGrasp
 from data.GCNLoader import GCNTaskGrasp
 from data.SG14KLoader import SG14K, get_ot_pairs_sg14k
 from data.data_specification import TASKS, TASKS_SG14K
 from utils.splits import get_ot_pairs_taskgrasp
+from data.Dataloader import BaselineData
 
 BASE_DIR = os.path.dirname(__file__)
 sys.path.append(os.path.join(BASE_DIR, '../'))
@@ -115,12 +117,37 @@ def main(cfg, save=False, visualize=False, experiment_dir=None):
             pc_scaling=cfg.pc_scaling,
             use_task1_grasps=cfg.use_task1_grasps
         )
+    elif cfg.dataset_class == 'BaslineData':
+        dset = BaselineData(
+            cfg.num_points,
+            transforms=None,
+            train=0,
+            base_dir=cfg.base_dir,
+            folder_dir=cfg.folder_dir,
+            normal=cfg.model.use_normal,
+            tasks=TASKS,
+            map_obj2class=name2wn,
+            class_list=class_list,
+            split_mode=cfg.split_mode,
+            split_idx=cfg.split_idx,
+            split_version=cfg.split_version,
+            pc_scaling=cfg.pc_scaling,
+            use_task1_grasps=cfg.use_task1_grasps,
+            graph_data_path=cfg.graph_data_path,
+            include_reverse_relations=cfg.include_reverse_relations,
+            subgraph_sampling=cfg.subgraph_sampling,
+            sampling_radius=cfg.sampling_radius,
+            instance_agnostic_mode=cfg.instance_agnostic_mode,
+            observation_type='point_cloud'
+        )
 
     if cfg.algorithm_class == 'SemanticGraspNet':
         model = SemanticGraspNet(cfg)
     elif cfg.algorithm_class == 'GCNGrasp':
         model = GCNGrasp(cfg)
         model.build_graph_embedding(dset.graph)
+    elif cfg.algorithm_class == 'Baseline':
+        model = BaselineNet(cfg)
     else:
         raise ValueError('Unknown class name {}'.format(cfg.algorithm_class))
 

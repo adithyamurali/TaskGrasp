@@ -30,6 +30,7 @@ import matplotlib.pyplot as plt
 import open3d as o3d
 
 import random
+from collections import defaultdict
 
 # testing to project point cloud to 3d to match pc with pixels
 def project():
@@ -197,11 +198,15 @@ class BaselineData(data.Dataset):
         self._data_labels = []
         self._data_label_counter = {0: 0, 1: 0}
 
+        self.init_statistics()
+
         print(random.shuffle(lines))
         good_ind = []
         # TODO: change back to full data
-        for i in tqdm.trange(len(lines[:1000])):
+        #for i in tqdm.trange(len(lines[:2000])):
+        for i in tqdm.trange(len(lines)):
             obj, obj_class, grasp_id, task, label = parse_line(lines[i])
+            self.update_statistics(obj, obj_class, grasp_id, task, label)
             #obj_class = self._map_obj2class[obj]
             all_object_instances.append(obj)
             self._object_task_pairs_dataset.append("{}-{}".format(obj, task))
@@ -257,13 +262,58 @@ class BaselineData(data.Dataset):
         self._all_object_instances = list(set(all_object_instances))
         self._len = len(self._data)
         # TODO: changed this for debugging
-        self._len = 8
-        for i in range(0, self._len, 2):
-            self._data[i], self._data[good_ind[i]] = self._data[good_ind[i]], self._data[i]
+        #self._len = 128
+        #for i in range(0, self._len, 2):
+        #    self._data[i], self._data[good_ind[i]] = self._data[good_ind[i]], self._data[i]
         print('Loading files from {} took {}s; overall dataset size {}, proportion successful grasps {:.2f}'.format(
             data_txt_splits[self._train], time.time() - start, self._len, float(correct_counter / self._len)))
 
         self._data_labels = np.array(self._data_labels)
+
+    def init_statistics(self):
+        self.stat_label_cnt = defaultdict(lambda: 0)
+        self.stat_cnt_per_obj = defaultdict(lambda: 0)
+        self.stat_cnt_per_task = defaultdict(lambda: 0)
+        self.stat_cnt_per_class = defaultdict(lambda: 0)
+        self.stat_cnt_per_grasp = defaultdict(lambda: 0)
+
+        self.stat_obj_per_class = defaultdict(lambda: set())
+        self.stat_task_per_class = defaultdict(lambda: set())
+        self.stat_class_per_task = defaultdict(lambda: set())
+        self.stat_task_per_grasp = defaultdict(lambda: set())
+        self.stat_grasp_per_obj = defaultdict(lambda: set())
+
+        self.label_per_obj_task = defaultdict(lambda: [0, 0])
+
+    def update_statistics(self, obj, obj_class, grasp_id, task, label):
+        #task_id = self._tasks.index(task)
+        self.stat_label_cnt[label] += 1
+        self.stat_cnt_per_obj[obj] += 1
+        self.stat_cnt_per_task[task] += 1
+        self.stat_cnt_per_class[obj_class] += 1
+        self.stat_cnt_per_grasp[(obj, grasp_id)] += 1
+
+        self.stat_obj_per_class[obj_class].add(obj)
+        self.stat_task_per_class[obj_class].add(task)
+        self.stat_class_per_task[task].add(obj_class)
+        self.stat_task_per_grasp[(obj, grasp_id)].add(task)
+        self.stat_grasp_per_obj[obj].add(grasp_id)
+
+        self.label_per_obj_task[(obj, task)][label] += 1
+    
+    def get_statistics(self):
+        return ({
+            "label cnt": self.stat_label_cnt,
+            "obj cnt": self.stat_cnt_per_obj,
+            "task cnt": self.stat_cnt_per_task,
+            "class cnt": self.stat_cnt_per_class,
+            "grasp cnt": self.stat_cnt_per_grasp,
+            "obj per class": self.stat_obj_per_class,
+            "task per class": self.stat_task_per_class,
+            "class per task": self.stat_class_per_task,
+            "task per grasp": self.stat_task_per_grasp,
+            "grasp per obj": self.stat_grasp_per_obj,
+        }, self.label_per_obj_task)
 
     @property
     def weights(self):
