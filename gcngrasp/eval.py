@@ -137,8 +137,7 @@ def main(cfg, save=False, visualize=False, experiment_dir=None):
             include_reverse_relations=cfg.include_reverse_relations,
             subgraph_sampling=cfg.subgraph_sampling,
             sampling_radius=cfg.sampling_radius,
-            instance_agnostic_mode=cfg.instance_agnostic_mode,
-            observation_type='point_cloud'
+            instance_agnostic_mode=cfg.instance_agnostic_mode
         )
 
     if cfg.algorithm_class == 'SemanticGraspNet':

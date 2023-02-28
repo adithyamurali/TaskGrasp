@@ -32,59 +32,6 @@ import open3d as o3d
 import random
 from collections import defaultdict
 
-# testing to project point cloud to 3d to match pc with pixels
-def project():
-    depth = np.load("0_depth.npy")
-    pc = np.load("0_pc.npy")
-    img = np.load("0_color.npy")
-    camera = np.load("0_camerainfo.npy")
-    dimg = o3d.geometry.Image(depth)
-    iimg = o3d.geometry.Image(img)
-    rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(iimg, dimg, convert_rgb_to_intensity = False)
-    intrinsics = o3d.camera.PinholeCameraIntrinsic(o3d.camera.PinholeCameraIntrinsicParameters.Kinect2DepthCameraDefault)
-    intrinsics.intrinsic_matrix = camera
-    intrinsics.width = 640
-    intrinsics.height = 480
-
-# seq2 is subsequence of seq1 -> find which elements of seq1 to use
-def get_mask(seq1, seq2):
-    print(seq1.shape, seq2.shape)
-    ind = 0
-    mask = np.zeros(seq1.shape[0], dtype=bool)
-    for i in range(100):
-        print("found:", np.sum(np.min(seq1 == seq2[i, 3:], axis=-1)))
-    print(np.where(np.min(seq1 == seq2[0, 3:], axis=-1)))
-    print((seq1[48404] == seq2[0, 3:]).all())
-    print(seq2[0])
-    for x in seq2:
-        print(x)
-        print(ind)
-        print(seq1[ind].shape, x[3:].shape)
-        while not (seq1[ind] == x[3:]).all():
-            ind += 1
-        mask[ind] = True
-
-
-def visualize(data_dir, obj, view_num):
-    obj = "001_squeezer"
-    print(obj, view_num)
-    color = np.load(os.path.join(data_dir, obj, f"{view_num}_color.npy"))
-    depth = np.load(os.path.join(data_dir, obj, f"{view_num}_depth.npy"))
-    pc = np.load(os.path.join(data_dir, obj, f"{view_num}_pc.npy"))
-    camera_info = np.load(os.path.join(data_dir, obj, f"{view_num}_camerainfo.npy"))
-    full_pc = np.load(os.path.join(data_dir, obj, f"fused_pc.npy"))
-    alpha = (np.arange(pc.shape[0])/pc.shape[0])[:, None]
-    c1 = np.array([0, 255, 0])
-    c2 = np.array([255, 0, 0])
-    new_color = alpha * c1 + (1-alpha) * c2
-    #pc[:, 3:] = new_color
-    print(pc[-10:, 3:])
-    #draw_scene(pc)
-    #draw_scene(full_pc[:pc.shape[0]])
-    mask = get_mask(color.reshape(color.shape[0]*color.shape[1], 3), pc)
-    print(mask.shape)
-    plt.imshow(mask)
-    plt.show()
 
 def visualize_pc(object_pc, grasp_pc):
     grasp_color = torch.Tensor([0, 255, 0]).double().repeat((grasp_pc.shape[0], 1))
@@ -116,8 +63,7 @@ class BaselineData(data.Dataset):
             include_reverse_relations=True,
             subgraph_sampling=True,
             sampling_radius=2,
-            instance_agnostic_mode=1,
-            observation_type='point_cloud'):
+            instance_agnostic_mode=1):
         """
 
         Args:
@@ -141,9 +87,6 @@ class BaselineData(data.Dataset):
                 instance_agnostic_mode, subgraph_sampling, sampling_radius
         """
         super().__init__()
-        self._observation_type = observation_type
-        if observation_type not in ['point_cloud', 'views']:
-            raise Exception(f"invalid observation type {observation_type}")
         self._pc_scaling = pc_scaling
         self._split_mode = split_mode
         self._split_idx = split_idx
@@ -212,33 +155,15 @@ class BaselineData(data.Dataset):
             self._object_task_pairs_dataset.append("{}-{}".format(obj, task))
 
             if obj not in self._obj_data:
-                if self._observation_type == 'point_cloud':
-                    pc_file = os.path.join(data_dir, obj, "fused_pc_clean.npy")
-                    if not os.path.exists(pc_file):
-                        raise ValueError(
-                            'Unable to find processed point cloud file {}'.format(pc_file))
-                    pc = np.load(pc_file)
-                    # TODO: why subtract mean?
-                    pc_mean = pc[:, :3].mean(axis=0)
-                    pc[:, :3] -= pc_mean
-                    self._obj_data[obj] = pc
-                else:
-                    views_data = []
-                    for view_num in range(3):
-                        #visualize(data_dir, obj, view_num)
-                        color_file = os.path.join(data_dir, obj, f"{view_num}_color.npy")
-                        depth_file = os.path.join(data_dir, obj, f"{view_num}_depth.npy")
-                        camera_info_file = os.path.join(data_dir, obj, f"{view_num}_camerainfo.npy")
-                        if not os.path.exists(color_file) or not os.path.exists(depth_file) or not os.path.exists(camera_info_file):
-                            print('Unable to find processed files for obj {}'.format(obj))
-                            #raise ValueError(
-                            #    'Unable to find processed files for obj {}'.format(obj))
-                        else:
-                            color = np.load(color_file)
-                            depth = np.load(depth_file)
-                            camera_info = np.load(camera_info_file)
-                            views_data.append((color, depth, camera_info))
-                    self._obj_data[obj] = views_data
+                pc_file = os.path.join(data_dir, obj, "fused_pc_clean.npy")
+                if not os.path.exists(pc_file):
+                    raise ValueError(
+                        'Unable to find processed point cloud file {}'.format(pc_file))
+                pc = np.load(pc_file)
+                # TODO: why subtract mean?
+                pc_mean = pc[:, :3].mean(axis=0)
+                pc[:, :3] -= pc_mean
+                self._obj_data[obj] = pc
 
             grasp_file = os.path.join(
                 data_dir, obj, "grasps", str(grasp_id), "grasp.npy")
@@ -333,13 +258,8 @@ class BaselineData(data.Dataset):
     def __getitem__(self, idx):
         obj, grasp_id, task_id, label = self._data[idx]
         obj_data = self._obj_data[obj]
-        if self._observation_type == 'point_cloud':
-            pc = regularize_pc_point_count(
-                obj_data, self._num_points, use_farthest_point=False)
-        else:
-            images = [o[0] for o in obj_data]
-            depth = [o[1].astype(np.float) for o in obj_data]
-            camera_info = [o[2] for o in obj_data]
+        pc = regularize_pc_point_count(
+            obj_data, self._num_points, use_farthest_point=False)
 
         grasp = self._grasps[grasp_id]
 
@@ -365,10 +285,7 @@ class BaselineData(data.Dataset):
 
         label = float(label)
 
-        if self._observation_type == 'point_cloud':
-            return pc, grasp_pc, task_id, label
-        else:
-            return images, depth, camera_info, grasp_pc, label
+        return pc, grasp_pc, task_id, label
 
     def __len__(self):
         return self._len
