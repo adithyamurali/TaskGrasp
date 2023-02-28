@@ -166,14 +166,23 @@ if __name__ == '__main__':
     # }
     # exp_name = 'gcngrasp_t'
 
-    exp_title = 'Held-out Objects GCNGrasp'
+    # exp_title = 'Held-out Objects GCNGrasp'
+    # data = {
+    #     "0":"gcngrasp_split_mode_o_split_idx_0",
+    #     "1":"gcngrasp_split_mode_o_split_idx_1",
+    #     "2":"gcngrasp_split_mode_o_split_idx_2",
+    #     "3":"gcngrasp_split_mode_o_split_idx_3",
+    # }
+    # exp_name = 'gcngrasp_o'
+
+    exp_title = 'Held-out Objects Baseline'
     data = {
-        "0":"gcngrasp_split_mode_o_split_idx_0",
-        "1":"gcngrasp_split_mode_o_split_idx_1",
-        "2":"gcngrasp_split_mode_o_split_idx_2",
-        "3":"gcngrasp_split_mode_o_split_idx_3",
+        "0":"baseline_i_0",
+        #"1":"gcngrasp_split_mode_o_split_idx_1",
+        #"2":"gcngrasp_split_mode_o_split_idx_2",
+        #"3":"gcngrasp_split_mode_o_split_idx_3",
     }
-    exp_name = 'gcngrasp_o'
+    exp_name = 'baseline_i'
     
     args.save_dir = os.path.join(args.save_dir, exp_name)
     mkdir(args.save_dir)

@@ -87,7 +87,7 @@ def dataloader_statistics(dataloader):
     cnt_label = [0, 0]
     item_cnt = 0
     for batch in dloader:
-        object_pc, grasp_pc, task_id, _, _, label = batch
+        object_pc, grasp_pc, task_id, _, _, _, label = batch
         item_cnt += label.shape[0]
         for i in range(label.shape[0]):
             cur_label = int(label[i].item())
@@ -107,7 +107,7 @@ def pointcloud_stats(dataloader):
         res.append((mean.numpy(), std.numpy(), mins.numpy(), maxs.numpy()))
 
     for batch in dloader:
-        object_pc, grasp_pc, task_id, _, _, label = batch
+        object_pc, grasp_pc, task_id, _, _, _, label = batch
         object_pc = object_pc[:, :, :3]
         for i in range(object_pc.shape[0]):
             pc_stats(object_pc[i])

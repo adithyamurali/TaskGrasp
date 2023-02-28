@@ -141,9 +141,9 @@ class BaselineData(data.Dataset):
 
         good_ind = []
         # TODO: change back to full data
-        random.shuffle(lines)
+        #random.shuffle(lines)
         #for i in tqdm.trange(len(lines[:2000])):
-        for i in tqdm.trange(len(lines[:1000])):
+        for i in tqdm.trange(len(lines)):
             obj, obj_class, grasp_id, task, label = parse_line(lines[i])
             obj_class = self._map_obj2class[obj]
             # using updated class from wordnet
@@ -165,15 +165,15 @@ class BaselineData(data.Dataset):
 
             grasp_file = os.path.join(
                 data_dir, obj, "grasps", str(grasp_id), "grasp.npy")
-            if grasp_id not in self._grasps:
+            if grasp_file not in self._grasps:
                 grasp = np.load(grasp_file)
-                self._grasps[grasp_id] = grasp
+                self._grasps[grasp_file] = grasp
 
             task_id = self._tasks.index(task)
             class_id = self._object_classes.index(obj_class)
 
             self._data.append(
-                (obj, grasp_id, task_id, obj, class_id, label))
+                (obj, grasp_file, task_id, obj, class_id, label))
             self._data_labels.append(int(label))
             if label:
                 correct_counter += 1
@@ -255,12 +255,12 @@ class BaselineData(data.Dataset):
         return weights_data
 
     def __getitem__(self, idx):
-        obj, grasp_id, task_id, obj, class_id, label = self._data[idx]
+        obj, grasp_file, task_id, obj, class_id, label = self._data[idx]
         obj_data = self._obj_data[obj]
         pc = regularize_pc_point_count(
             obj_data, self._num_points, use_farthest_point=False)
 
-        grasp = self._grasps[grasp_id]
+        grasp = self._grasps[grasp_file]
 
         grasp_pc = get_gripper_control_points()
         grasp_pc = np.matmul(grasp, grasp_pc.T).T
@@ -287,7 +287,7 @@ class BaselineData(data.Dataset):
 
         label = float(label)
 
-        return pc, grasp_pc, task_id, instance_id, class_id, label
+        return pc, grasp_pc, task_id, instance_id, class_id, grasp, label
 
     def __len__(self):
         return self._len
@@ -344,7 +344,7 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         for batch in dloader:
-            object_pc, grasp_pc, task_id, _, _, label = batch
+            object_pc, grasp_pc, task_id, _, _, _, label = batch
             task_name = TASKS[task_id]
             print(f"visualizing for task {task_name} ({task_id.numpy()[0]}) -> label {label.numpy()[0]}")
             visualize_pc(object_pc[0], grasp_pc[0])

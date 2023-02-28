@@ -161,7 +161,7 @@ class BaselineNet(pl.LightningModule):
         self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
 
         task_vocab_size = len(TASKS)
-        self.task_embedding = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
+        self.task_embedding_learned = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
 
         # class_vocab_size = len(self._class_list)
         # self.class_embedding = nn.Embedding(class_vocab_size, self.cfg.embedding_size)
@@ -190,7 +190,7 @@ class BaselineNet(pl.LightningModule):
         point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)
         point_pos = torch.cat([object_pos, grasp_pos], dim=1)
 
-        task_tokens = self.task_embedding(task_ids).unsqueeze(1)
+        task_tokens = self.task_embedding_learned(task_ids).unsqueeze(1)
         query_tokens = self.query_embedding.weight.repeat(batch_size, 1, 1)
 
         _, query_tokens = self.attention_layers(point_tokens, point_pos, query_tokens, task_tokens)
@@ -199,7 +199,7 @@ class BaselineNet(pl.LightningModule):
         return logits
 
     def training_step(self, batch, batch_idx):
-        object_pcs, grasp_pcs, task_ids, _, _, labels = batch
+        object_pcs, grasp_pcs, task_ids, _, _, _, labels = batch
 
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
@@ -215,7 +215,7 @@ class BaselineNet(pl.LightningModule):
         return dict(loss=loss, log=log, progress_bar=dict(train_acc=acc))
 
     def validation_step(self, batch, batch_idx):
-        object_pcs, grasp_pcs, task_ids, _, _, labels = batch
+        object_pcs, grasp_pcs, task_ids, _, _, _, labels = batch
 
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
