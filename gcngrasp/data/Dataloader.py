@@ -219,8 +219,8 @@ class BaselineData(data.Dataset):
                             'Unable to find processed point cloud file {}'.format(pc_file))
                     pc = np.load(pc_file)
                     # TODO: why subtract mean?
-                    #pc_mean = pc[:, :3].mean(axis=0)
-                    #pc[:, :3] -= pc_mean
+                    pc_mean = pc[:, :3].mean(axis=0)
+                    pc[:, :3] -= pc_mean
                     self._obj_data[obj] = pc
                 else:
                     views_data = []
@@ -270,9 +270,6 @@ class BaselineData(data.Dataset):
 
         self._data_labels = np.array(self._data_labels)
     
-    def get_statistics(self):
-        return
-
     def init_statistics(self):
         self.stat_label_cnt = defaultdict(lambda: 0)
         self.stat_cnt_per_obj = defaultdict(lambda: 0)
