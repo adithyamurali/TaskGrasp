@@ -200,11 +200,11 @@ class BaselineData(data.Dataset):
 
         self.init_statistics()
 
-        print(random.shuffle(lines))
         good_ind = []
         # TODO: change back to full data
+        #print(random.shuffle(lines))
         #for i in tqdm.trange(len(lines[:2000])):
-        for i in tqdm.trange(len(lines)):
+        for i in tqdm.trange(len(lines[:1000])):
             obj, obj_class, grasp_id, task, label = parse_line(lines[i])
             self.update_statistics(obj, obj_class, grasp_id, task, label)
             #obj_class = self._map_obj2class[obj]
@@ -286,7 +286,6 @@ class BaselineData(data.Dataset):
         self.label_per_obj_task = defaultdict(lambda: [0, 0])
 
     def update_statistics(self, obj, obj_class, grasp_id, task, label):
-        #task_id = self._tasks.index(task)
         self.stat_label_cnt[label] += 1
         self.stat_cnt_per_obj[obj] += 1
         self.stat_cnt_per_task[task] += 1
@@ -332,48 +331,41 @@ class BaselineData(data.Dataset):
         return weights_data
 
     def __getitem__(self, idx):
-        #print("accessing", idx)
         obj, grasp_id, task_id, label = self._data[idx]
         obj_data = self._obj_data[obj]
         if self._observation_type == 'point_cloud':
             pc = regularize_pc_point_count(
                 obj_data, self._num_points, use_farthest_point=False)
-            #pc_color = pc[:, 3:]
-            #pc = pc[:, :3]
         else:
             images = [o[0] for o in obj_data]
             depth = [o[1].astype(np.float) for o in obj_data]
             camera_info = [o[2] for o in obj_data]
 
         grasp = self._grasps[grasp_id]
-        #print("acc2", grasp_id, grasp)
-        #task_id = self._tasks.index(task)
-        #class_id = self._object_classes.index(obj_class)
-        #instance_id = self._all_object_instances.index(obj)
 
         grasp_pc = get_gripper_control_points()
-        # TODO: why this mul?
         grasp_pc = np.matmul(grasp, grasp_pc.T).T
         grasp_pc = grasp_pc[:, :3]
 
-        # TODO: embedding for PCs
-        # TODO: some normalization needed?
+        # TODO: latent indicator to pass all to pointnet
         #latent = np.concatenate(
         #    [np.zeros(pc.shape[0]), np.ones(grasp_pc.shape[0])])
         #latent = np.expand_dims(latent, axis=1)
-        #pc = np.concatenate([pc, grasp_pc], axis=0)
 
-        #pc, grasp = pc_normalize(pc, grasp, pc_scaling=self._pc_scaling)
+        # TODO: normalization
+        all_pc = np.concatenate([pc[:, :3], grasp_pc], axis=0)
+        all_pc = pc_normalize(all_pc, grasp=None, pc_scaling=self._pc_scaling)
+        pc[:, :3] = all_pc[:pc.shape[0], :]
+        grasp_pc = all_pc[-grasp_pc.shape[0], :]
         #pc = np.concatenate([pc, latent], axis=1)
 
-        # TODO: check this transform
+        # TODO: data augmentations?
         #if self._transforms is not None:
         #    pc = self._transforms(pc)
 
         label = float(label)
 
         if self._observation_type == 'point_cloud':
-            #print("returning", grasp_pc)
             return pc, grasp_pc, task_id, label
         else:
             return images, depth, camera_info, grasp_pc, label
@@ -420,7 +412,6 @@ if __name__ == "__main__":
     )
 
     # TODO: enable weighted sampler to have equal number of positive/negative samples
-    # also change in train loop
     """
     weights = dset.weights
     sampler = torch.utils.data.sampler.WeightedRandomSampler(

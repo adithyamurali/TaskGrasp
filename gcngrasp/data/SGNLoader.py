@@ -22,11 +22,12 @@ from utils.splits import get_split_data, parse_line, get_ot_pairs_taskgrasp
 from visualize import draw_scene, get_gripper_control_points
 from geometry_utils import regularize_pc_point_count
 
-def pc_normalize(pc, grasp, pc_scaling=True):
+def pc_normalize(pc, grasp=None, pc_scaling=True):
     l = pc.shape[0]
     centroid = np.mean(pc, axis=0)
     pc = pc - centroid
-    grasp[:3, 3] -= centroid
+    if grasp is not None:
+        grasp[:3, 3] -= centroid
 
     if pc_scaling:
         m = np.max(np.sqrt(np.sum(pc ** 2, axis=1)))
@@ -35,8 +36,12 @@ def pc_normalize(pc, grasp, pc_scaling=True):
         scale_transform = np.diag([1 / m, 1 / m, 1 / m, 1])
         pc = np.matmul(scale_transform, pc.T).T
         pc = pc[:, :3]
-        grasp = np.matmul(scale_transform, grasp)
-    return pc, grasp
+        if grasp is not None:
+            grasp = np.matmul(scale_transform, grasp)
+    if grasp is not None:
+        return pc, grasp
+    else:
+        return pc
 
 
 def get_task1_hits(object_task_pairs, num_grasps=25):

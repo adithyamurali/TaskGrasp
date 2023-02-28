@@ -91,6 +91,28 @@ def dataloader_statistics(dataloader):
             print(f"{item_cnt}: {cnt_label}")
     print(f"labels {cnt_label}")
 
+def pointcloud_stats(dataloader):
+    res = []
+    def pc_stats(pc):
+        print(pc.shape)
+        mean = torch.mean(pc, dim=0)
+        pc = pc - mean
+        std = torch.std(pc, dim=0)
+        mins = torch.min(pc, axis=0)[0]
+        maxs = torch.max(pc, axis=0)[0]
+        res.append((mean.numpy(), std.numpy(), mins.numpy(), maxs.numpy()))
+
+    for batch in dloader:
+        object_pc, grasp_pc, task_id, label = batch
+        object_pc = object_pc[:, :, :3]
+        for i in range(object_pc.shape[0]):
+            pc_stats(object_pc[i])
+        if len(res) > 5:
+            break
+
+    for x in res:
+        print(x)
+
 def get_cfg(args):
     cfg = get_cfg_defaults()
 
@@ -130,6 +152,7 @@ if __name__ == "__main__":
     #dset = model.val_dset
     dloader = model.train_dataloader()
 
-    model_statistics(model, cfg)
-    data_statistics(dset)
-    dataloader_statistics(dloader)
+    #model_statistics(model, cfg)
+    #data_statistics(dset)
+    #dataloader_statistics(dloader)
+    pointcloud_stats(dloader)
