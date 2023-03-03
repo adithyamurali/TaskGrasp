@@ -170,7 +170,7 @@ class BaselineData(data.Dataset):
                 self._grasps[grasp_file] = grasp
 
             task_id = self._tasks.index(task)
-            class_id = self._object_classes.index(obj_class)
+            class_id = self._object_classes.index(obj_class) if self._object_classes is not None else -1
 
             self._data.append(
                 (obj, grasp_file, task_id, obj, class_id, label))
@@ -303,7 +303,7 @@ if __name__ == "__main__":
                 'Provided base dir {} not found'.format(
                     args.base_dir))
     else:
-        args.base_dir = os.path.join(os.path.dirname(__file__), '../../../data')
+        args.base_dir = os.path.join(os.path.dirname(__file__), '../../data')
 
     folder_dir = 'taskgrasp'
     _, _, _, name2wn = pickle.load(

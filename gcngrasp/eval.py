@@ -549,7 +549,9 @@ if __name__ == "__main__":
     experiment_dir = os.path.join(cfg.log_dir, cfg.weight_file)
 
     weight_files = os.listdir(os.path.join(experiment_dir, 'weights'))
+    #weight_files = list(sorted(weight_files))
     assert len(weight_files) == 1
+    #print("using", weight_files[2])
     cfg.weight_file = os.path.join(experiment_dir, 'weights', weight_files[0])
 
     cfg.freeze()

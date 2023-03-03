@@ -65,7 +65,7 @@ def main(cfg):
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         monitor="val_acc",
         mode="max",
-        save_top_k=1,
+        save_top_k=10,
         filepath=os.path.join(
             log_dir, 'weights', "best"
         ),

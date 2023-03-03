@@ -14,6 +14,8 @@ from visualize import mkdir
 
 def get_results_dir(log_dir, results_dir):
     dirs = os.listdir(log_dir)
+    dirs = list(sorted(dirs))
+    dirs.reverse()
     for dir in dirs:
         if dir.find(results_dir) >= 0:
             return dir

@@ -4,7 +4,6 @@ from yacs.config import CfgNode as CN
 _C = CN()
 _C.weight_file = ''
 _C.batch_size = 16
-#_C.batch_size = 4
 _C.num_points = 4096
 _C.epochs = 400
 _C.gpus = [0, ]
@@ -19,8 +18,7 @@ _C.split_mode = 'o'
 _C.embedding_size = 256
 _C.split_idx = 0
 _C.split_version = 1  # 0 is for random splits, 1 is for cross-validation splits
-#_C.patience = 50
-_C.patience = 400
+_C.patience = 50
 _C.pc_scaling = True
 _C.use_task1_grasps = True
 _C.weighted_sampling = True
@@ -30,6 +28,7 @@ _C.pretrained_weight_file = ''
 _C.embedding_mode = 0 # 0 for random initialization, 1 for finetuning pretrained weights, 2 for loading and freezing pretrained weights
 _C.embedding_model = 'numberbatch'
 
+# To be overwritten in config file
 _C.num_attn_layers = 256
 _C.num_attn_heads = 256
 
