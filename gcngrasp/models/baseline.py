@@ -18,7 +18,12 @@ from data.Dataloader import BaselineData
 from data.data_specification import TASKS, TASKS_SG14K
 from .layers import RelativeCrossAttentionLayer, CrossAttentionLayer, FeedforwardLayer
 from .position_encodings import RotaryPositionEncoding3D
+from utils.splits import get_ot_pairs_taskgrasp
+from utils.eval_metrics import APMetrics
 
+from sklearn.metrics import average_precision_score
+from collections import defaultdict
+import numpy as np
 
 class PointNetLayers(nn.Module):
     def __init__(self, use_xyz):
@@ -163,6 +168,8 @@ class BaselineNet(pl.LightningModule):
         task_vocab_size = len(TASKS)
         self.task_embedding_learned = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
 
+        self.ap_metrics = APMetrics(cfg)
+
         # class_vocab_size = len(self._class_list)
         # self.class_embedding = nn.Embedding(class_vocab_size, self.cfg.embedding_size)
 
@@ -215,7 +222,7 @@ class BaselineNet(pl.LightningModule):
         return dict(loss=loss, log=log, progress_bar=dict(train_acc=acc))
 
     def validation_step(self, batch, batch_idx):
-        object_pcs, grasp_pcs, task_ids, _, _, _, labels = batch
+        object_pcs, grasp_pcs, task_ids, instance_ids, class_ids, _, labels = batch
 
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
@@ -226,17 +233,33 @@ class BaselineNet(pl.LightningModule):
         #    if labels.type(torch.cuda.FloatTensor).shape[0] == 1:
         #        logits = logits.unsqueeze(-1)
         #        loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
-        pred = torch.round(torch.sigmoid(logits))
-        acc = (pred == labels).float().mean()
+        probs = torch.sigmoid(logits)
+        pred = torch.round(probs)
+        correct = (pred == labels).float()
+        acc = correct.mean()
 
-        return dict(val_loss=loss, val_acc=acc)
+        return dict(val_loss=loss, val_acc=acc, labels=labels.cpu().numpy(), probs=probs.cpu().numpy(),
+                    task_ids=task_ids.cpu().numpy(), instance_ids=instance_ids.cpu().numpy(),
+                    class_ids=class_ids.cpu().numpy())
 
     def validation_end(self, outputs):
         reduced_outputs = {}
-        for k in outputs[0]:
+        for k in ["val_loss", "val_acc"]:
             reduced_outputs[k] = [o[k] for o in outputs]
             reduced_outputs[k] = torch.stack(reduced_outputs[k]).mean()
 
+        results = []
+        for i in range(len(outputs)):
+            for j in range(outputs[i]["labels"].shape[0]):
+                results.append({key: outputs[i][key][j] for key in ["labels", "probs", "task_ids", "instance_ids", "class_ids"]})
+        for x in results:
+            x["instance_ids"] = self.val_dset.get_instance_from_id(x["instance_ids"])
+            x["task_ids"] = self.val_dset.get_task_from_id(x["task_ids"])
+        
+        metrics = self.ap_metrics.get_map(results)
+
+        reduced_outputs.update(metrics)
+        
         reduced_outputs.update(
             dict(log=reduced_outputs.copy(), progress_bar=reduced_outputs.copy())
         )

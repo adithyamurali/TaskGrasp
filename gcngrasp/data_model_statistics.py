@@ -156,7 +156,7 @@ if __name__ == "__main__":
     #dset = model.val_dset
     dloader = model.train_dataloader()
 
-    model_statistics(model, cfg)
-    #data_statistics(dset)
+    #model_statistics(model, cfg)
+    data_statistics(dset)
     #dataloader_statistics(dloader)
     #pointcloud_stats(dloader)

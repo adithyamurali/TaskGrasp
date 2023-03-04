@@ -65,7 +65,7 @@ def main(cfg):
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         monitor="val_acc",
         mode="max",
-        save_top_k=10,
+        save_top_k=20,
         filepath=os.path.join(
             log_dir, 'weights', "best"
         ),
@@ -101,7 +101,8 @@ def main(cfg):
         max_epochs=cfg.epochs,
         early_stop_callback=early_stop_callback,
         checkpoint_callback=checkpoint_callback,
-        default_save_path=log_dir
+        default_save_path=log_dir,
+        val_check_interval=0.5
     )
     trainer.fit(model)
 

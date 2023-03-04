@@ -140,8 +140,6 @@ class BaselineData(data.Dataset):
         self.init_statistics()
 
         good_ind = []
-        # TODO: change back to full data
-        #random.shuffle(lines)
         #for i in tqdm.trange(len(lines[:2000])):
         for i in tqdm.trange(len(lines)):
             obj, obj_class, grasp_id, task, label = parse_line(lines[i])
@@ -193,7 +191,7 @@ class BaselineData(data.Dataset):
             data_txt_splits[self._train], time.time() - start, self._len, float(correct_counter / self._len)))
 
         self._data_labels = np.array(self._data_labels)
-    
+
     def init_statistics(self):
         self.stat_label_cnt = defaultdict(lambda: 0)
         self.stat_cnt_per_obj = defaultdict(lambda: 0)
@@ -253,6 +251,12 @@ class BaselineData(data.Dataset):
         weights_data[self._data_labels == 0] = weights[0]
         weights_data[self._data_labels == 1] = weights[1]
         return weights_data
+
+    def get_task_from_id(self, task_id):
+        return self._tasks[task_id]
+
+    def get_instance_from_id(self, instance_id):
+        return self._all_object_instances[instance_id]
 
     def __getitem__(self, idx):
         obj, grasp_file, task_id, obj, class_id, label = self._data[idx]

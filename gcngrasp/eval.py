@@ -249,7 +249,6 @@ def main(cfg, save=False, visualize=False, experiment_dir=None):
                 logits = logits.squeeze()
 
             elif cfg.algorithm_class == 'Baseline':
-                # TODO: grasp missing?!
                 object_pcs, grasp_pcs, tasks, instances, classes, grasps, labels = batch
 
                 object_pcs = object_pcs.type(torch.cuda.FloatTensor)
@@ -549,10 +548,11 @@ if __name__ == "__main__":
     experiment_dir = os.path.join(cfg.log_dir, cfg.weight_file)
 
     weight_files = os.listdir(os.path.join(experiment_dir, 'weights'))
-    #weight_files = list(sorted(weight_files))
-    assert len(weight_files) == 1
-    #print("using", weight_files[2])
-    cfg.weight_file = os.path.join(experiment_dir, 'weights', weight_files[0])
+    weight_files = list(sorted(weight_files))
+    print(weight_files)
+    #assert len(weight_files) == 1
+    print("using", weight_files[-1])
+    cfg.weight_file = os.path.join(experiment_dir, 'weights', weight_files[-1])
 
     cfg.freeze()
     print(cfg)
