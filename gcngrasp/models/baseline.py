@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import einops
+from pointnet2.pointnet2_modules import PointnetSAModuleVotes
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(os.path.dirname(BASE_DIR))
@@ -25,77 +26,117 @@ from sklearn.metrics import average_precision_score
 from collections import defaultdict
 import numpy as np
 
-class PointNetLayers(nn.Module):
-    def __init__(self, use_xyz):
+class PCAutoEncoder(nn.Module):
+    """Downsample and then upsample point cloud."""
+
+    def __init__(self, in_dim=3, out_dim=60, depth=2,
+                 mlp_last_dims=[128, 256, 256],
+                 mlp_hid_dims=[64, 128, 128],
+                 npoint_list=[512, 256, 128]):
         super().__init__()
+        self.depth = depth
 
-        input_embedding_size = 3
-
-        self.SA_modules = nn.ModuleList()
-        self.SA_modules.append(
-            PointnetSAModuleMSG(
-                npoint=1024*4,
-                radii=[0.1, 0.2, 0.2],
-                nsamples=[16, 32, 128],
-                mlps=[
-                    [input_embedding_size, 4, 8, 8],
-                    [input_embedding_size, 4, 8, 8],
-                    [input_embedding_size, 4, 8, 16]
-                ],
-                use_xyz=use_xyz,
-            )
+        self.sa1 = PointnetSAModuleVotes(
+            npoint=npoint_list[0],
+            radius=0.1,
+            nsample=64,
+            mlp=(
+                [in_dim]
+                + [mlp_hid_dims[0] for _ in range(depth)]
+                + [mlp_last_dims[0]]
+            ),
+            use_xyz=True,
+            normalize_xyz=True
         )
 
-        input_channels = 8 + 8 + 16
-
-        self.SA_modules.append(
-            PointnetSAModuleMSG(
-                npoint=1024,
-                radii=[0.2, 0.2, 0.4],
-                nsamples=[32, 64, 128],
-                mlps=[
-                    [input_channels, 32, 16, 8],
-                    [input_channels, 32, 16, 8],
-                    [input_channels, 32, 16, 16],
-                ],
-                use_xyz=use_xyz,
-            )
+        self.sa2 = PointnetSAModuleVotes(
+            npoint=npoint_list[1],
+            radius=0.2,
+            nsample=32,
+            mlp=(
+                [mlp_last_dims[0]]
+                + [mlp_hid_dims[1] for _ in range(depth)]
+                + [mlp_last_dims[1]]
+            ),
+            use_xyz=True,
+            normalize_xyz=True
         )
 
-        input_channels = 8 + 8 + 16
+        self.sa3 = PointnetSAModuleVotes(
+            npoint=npoint_list[2],
+            radius=0.4,
+            nsample=16,
+            mlp=(
+                [mlp_last_dims[1]]
+                + [mlp_hid_dims[2] for _ in range(depth)]
+                + [mlp_last_dims[2]]
+            ),
+            use_xyz=True,
+            normalize_xyz=True
+        )
 
-        self.SA_modules.append(
-            PointnetSAModuleMSG(
-                npoint=512,
-                radii=[0.2, 0.4, 0.8],
-                nsamples=[32, 64, 128],
-                mlps=[
-                    [input_channels, 32, 32, 20],
-                    [input_channels, 32, 32, 20],
-                    [input_channels, 32, 32, 20],
-                ],
-                use_xyz=use_xyz,
-            )
+        self.fp2 = PointnetFPModule(
+            mlp=[mlp_last_dims[1] + mlp_last_dims[2], 256, out_dim]
+        )
+
+        self.fp1 = PointnetFPModule(
+            mlp=[mlp_last_dims[0] + out_dim, 256, mlp_last_dims[1]]
+        )
+
+        self.fp0 = PointnetFPModule(
+            mlp=[in_dim + mlp_last_dims[1], 256, out_dim]
         )
 
     def _break_up_pc(self, pc):
-        xyz = pc[..., 0:3].contiguous()
-        features = pc[..., 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
-
+        """Split xyz-features, input (B, P, F), out (B, P, 3)-(B, P, F-3)."""
+        xyz = pc[..., :3].contiguous()
+        features = pc[..., 3:].contiguous() if pc.size(-1) > 3 else None
         return xyz, features
 
-    # TODO: do we want to process rgb?
-    def forward(self, pointcloud):
+    def forward(self, pc, upsample=False):
         """
-        Arguments:
-            pointcloud: b x n x 6
+        Forward pass.
+        Args:
+            pc: (xyz (B, P, 3), features (B, P, in_dim))
+        Returns:
+            latent: xyz (B, s, 3), features (B, s, out_dim), inds (B, s)
+                s = 1024 sampled points
+            if upsample, additionally returns:
+                xyz (B, P, 3), features (B, P, out_dim)
         """
-        # TODO: colors normalize
-        xyz, features = self._break_up_pc(pointcloud)
-        for module in self.SA_modules:
-            xyz, features = module(xyz, features)
-        features = einops.rearrange(features, "b c n -> b n c")
-        return xyz, features
+        # Downsampling layers
+        sa0_xyz, sa0_feats = self._break_up_pc(pc)
+        if sa0_feats is not None:
+            sa0_feats = sa0_feats.transpose(1, 2).contiguous()
+        #print('sa0_xyz', sa0_xyz.size())
+        sa1_xyz, sa1_feats, sa1_inds = self.sa1(sa0_xyz, sa0_feats)
+
+        sa2_xyz, sa2_feats, _ = self.sa2(sa1_xyz, sa1_feats)
+        #print('sa2_feats', sa2_feats.size())
+        sa3_xyz, sa3_feats, _ = self.sa3(sa2_xyz, sa2_feats)
+        #print('sa3_feats', sa3_feats.size())
+
+        # Upsampling layers
+        fp2_feats = self.fp2(sa2_xyz, sa3_xyz, sa2_feats, sa3_feats)
+        fp2_xyz = sa2_xyz
+        fp2_inds = sa1_inds[:, :fp2_xyz.shape[1]]
+        res_dict = {
+            'sa0_xyz': sa0_xyz,
+            'sa0_feats': sa0_feats,
+            'sa1_xyz': sa1_xyz,
+            'sa1_feats': sa1_feats,
+            'sa2_xyz': sa2_xyz,
+            'sa2_feats': sa2_feats,
+            'lat_xyz': fp2_xyz,
+            'lat_feats': fp2_feats.transpose(1, 2).contiguous(),
+            'lat_inds': fp2_inds.long()
+        }
+        if not upsample:  # don't fully upsample
+            return res_dict
+        fp1_feats = self.fp1(sa1_xyz, sa2_xyz, sa1_feats, fp2_feats)
+        fp0_feats = self.fp0(sa0_xyz, sa1_xyz, sa0_feats, fp1_feats)
+        res_dict['ups_feats'] = fp0_feats.transpose(1, 2).contiguous()
+        return res_dict
 
 
 class AttentionLayers(nn.Module):
@@ -144,7 +185,7 @@ class BaselineNet(pl.LightningModule):
         super().__init__()
         self.cfg = cfg
 
-        self.pointnet = PointNetLayers(cfg.model.use_xyz)
+        self.pointnet = PCAutoEncoder()
 
         self.relative_position_encoding = RotaryPositionEncoding3D(cfg.embedding_size)
 
@@ -191,7 +232,8 @@ class BaselineNet(pl.LightningModule):
         grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
         grasp_pos = self.relative_position_encoding(grasp_xyz)
 
-        object_xyz, object_tokens = self.pointnet(pointcloud)
+        pointnet_res = self.pointnet(pointcloud, upsample=False)
+        object_xyz, object_tokens = pointnet_res["lat_xyz"], pointnet_res["lat_feats"]
         object_pos = self.relative_position_encoding(object_xyz)
 
         point_tokens = torch.cat([object_tokens, grasp_tokens], dim=1)

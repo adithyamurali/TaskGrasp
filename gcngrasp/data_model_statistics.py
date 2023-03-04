@@ -46,9 +46,9 @@ def model_statistics(model, cfg):
     print(f"pointnet layers: {num_parameters(model.pointnet)}")
     print(f"total: {total_params}")
 
-    print("all vars:")
-    for var_name in model.state_dict():
-        print(var_name)
+    # print("all vars:")
+    # for var_name in model.state_dict():
+    #     print(var_name, num_parameters)
 
 
 def data_statistics(dataset: BaselineData):
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     #dset = model.val_dset
     dloader = model.train_dataloader()
 
-    #model_statistics(model, cfg)
-    data_statistics(dset)
+    model_statistics(model, cfg)
+    #data_statistics(dset)
     #dataloader_statistics(dloader)
     #pointcloud_stats(dloader)

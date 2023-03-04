@@ -140,7 +140,7 @@ class BaselineData(data.Dataset):
         self.init_statistics()
 
         good_ind = []
-        #for i in tqdm.trange(len(lines[:2000])):
+        #for i in tqdm.trange(len(lines[:100])):
         for i in tqdm.trange(len(lines)):
             obj, obj_class, grasp_id, task, label = parse_line(lines[i])
             obj_class = self._map_obj2class[obj]
