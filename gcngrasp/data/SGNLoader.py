@@ -186,6 +186,12 @@ class SGNTaskGrasp(data.Dataset):
 
         self._data_labels = np.array(self._data_labels)
 
+    def get_task_from_id(self, task_id):
+        return self._tasks[task_id]
+
+    def get_instance_from_id(self, instance_id):
+        return self._all_object_instances[instance_id]
+
     @property
     def weights(self):
         N = self.__len__()

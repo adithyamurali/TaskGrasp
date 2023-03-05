@@ -31,20 +31,17 @@ import matplotlib.pyplot as plt
 import open3d as o3d
 from config import get_cfg_defaults
 from models.baseline import BaselineNet
+from models.sgn import SemanticGraspNet
+from models.gcn import GCNTaskGrasp
 
 def num_parameters(module):
     return sum(p.numel() for p in module.parameters() if p.requires_grad)
 
 def model_statistics(model, cfg):
-    total_params = 0
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad:
-            continue
-        params = parameter.numel()
-        total_params += params
     print(f"attention layers ({cfg.num_attn_layers}): {num_parameters(model.attention_layers)}")
     print(f"pointnet layers: {num_parameters(model.pointnet)}")
-    print(f"total: {total_params}")
+    print(f"total: {num_parameters(model)}")
+    #print(f"sgn pointnet: {num_parameters(model.SA_modules)}")
 
     # print("all vars:")
     # for var_name in model.state_dict():
@@ -150,13 +147,16 @@ if __name__ == "__main__":
     cfg = get_cfg(args)
 
     model = BaselineNet(cfg)
+    #model = SemanticGraspNet(cfg)
+    #model = GCNTaskGrasp(cfg, tasks=TASKS)
+
+    model_statistics(model, cfg)
 
     model.prepare_data()
     dset = model.train_dset
     #dset = model.val_dset
     dloader = model.train_dataloader()
 
-    model_statistics(model, cfg)
     #data_statistics(dset)
     #dataloader_statistics(dloader)
     #pointcloud_stats(dloader)

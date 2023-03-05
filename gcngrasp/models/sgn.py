@@ -20,6 +20,7 @@ from data.SGNLoader import SGNTaskGrasp
 from data.SG14KLoader import SG14K
 from data.data_specification import TASKS, TASKS_SG14K
 import data.data_utils as d_utils
+from utils.eval_metrics import APMetrics
 
 def set_bn_momentum_default(bn_momentum):
     def fn(m):
@@ -62,6 +63,8 @@ class SemanticGraspNet(pl.LightningModule):
         self.cfg = cfg
 
         self._build_model()
+
+        self.ap_metrics = APMetrics(cfg)
 
     def _build_model(self):
 
@@ -188,7 +191,7 @@ class SemanticGraspNet(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
  
-        pc, _, tasks, classes, _, _, labels = batch
+        pc, _, tasks, classes, instances, _, labels = batch
 
         logits = self.forward(pc, tasks, classes)
         logits = logits.squeeze()
@@ -199,19 +202,36 @@ class SemanticGraspNet(pl.LightningModule):
             if labels.type(torch.cuda.FloatTensor).shape[0] == 1:
                 logits = logits.unsqueeze(-1)
                 loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
-        pred = torch.round(torch.sigmoid(logits))
+
+        probs = torch.sigmoid(logits)
+        pred = torch.round(probs)
         acc = (pred == labels).float().mean()
 
-        return dict(val_loss=loss, val_acc=acc)
+        return dict(val_loss=loss, val_acc=acc,
+                    labels=labels.cpu().numpy(), probs=probs.cpu().numpy(),
+                    task_ids=tasks.cpu().numpy(), instance_ids=instances.cpu().numpy(),
+                    class_ids=classes.cpu().numpy())
 
     def validation_end(self, outputs):
         reduced_outputs = {}
-        for k in outputs[0]:
+        for k in ["val_loss", "val_acc"]:
             for o in outputs:
                 reduced_outputs[k] = reduced_outputs.get(k, []) + [o[k]]
 
         for k in reduced_outputs:
             reduced_outputs[k] = torch.stack(reduced_outputs[k]).mean()
+
+        results = []
+        for i in range(len(outputs)):
+            for j in range(outputs[i]["labels"].shape[0]):
+                results.append({key: outputs[i][key][j] for key in ["labels", "probs", "task_ids", "instance_ids", "class_ids"]})
+        for x in results:
+            x["instance_ids"] = self.val_dset.get_instance_from_id(x["instance_ids"])
+            x["task_ids"] = self.val_dset.get_task_from_id(x["task_ids"])
+
+        metrics = self.ap_metrics.get_map(results)
+
+        reduced_outputs.update(metrics)
 
         reduced_outputs.update(
             dict(log=reduced_outputs.copy(), progress_bar=reduced_outputs.copy())
