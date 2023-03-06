@@ -6,7 +6,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from torchvision import transforms
 import einops
+from gcngrasp.data.SGNLoader import SGNTaskGrasp
 from pointnet2.pointnet2_modules import PointnetSAModuleVotes
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -21,6 +23,7 @@ from .layers import RelativeCrossAttentionLayer, CrossAttentionLayer, Feedforwar
 from .position_encodings import RotaryPositionEncoding3D
 from utils.splits import get_ot_pairs_taskgrasp
 from utils.eval_metrics import APMetrics
+import data.data_utils as d_utils
 
 from sklearn.metrics import average_precision_score
 from collections import defaultdict
@@ -247,8 +250,28 @@ class BaselineNet(pl.LightningModule):
         logits = self.prediction_layer(query_tokens[:, 0, :])
         return logits
 
+    def _unify_dataloader_batches(self, batch):
+        if self.cfg.dataset_class == 'BaselineData':
+            return batch
+        elif self.cfg.dataset_class == 'SGNTaskGrasp':
+            fused_pc_xyz, pc_color, task_id, class_id, instance_id, grasp, label = batch
+            grasp_pc = fused_pc_xyz[:, -7:, :]
+            object_xyz = fused_pc_xyz[:, :-7, :]
+            # santity check that we split the pointclouds in the right way
+            assert((grasp_pc[:, :, -1] == 1).all())
+            assert((object_xyz[:, :, -1] == 0).all())
+
+            # remove latent indicator
+            grasp_pc = grasp_pc[:, :, :3]
+            object_xyz = object_xyz[:, :, :3]
+            object_pc = torch.cat([object_xyz, pc_color.float()], dim=-1)
+
+            return object_pc, grasp_pc, task_id, instance_id, class_id, grasp, label
+        else:
+            raise ValueError('Invalid dataset class: {}'.format(self.cfg.dataset_class))
+
     def training_step(self, batch, batch_idx):
-        object_pcs, grasp_pcs, task_ids, _, _, _, labels = batch
+        object_pcs, grasp_pcs, task_ids, _, _, _, labels = self._unify_dataloader_batches(batch)
 
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
@@ -264,7 +287,7 @@ class BaselineNet(pl.LightningModule):
         return dict(loss=loss, log=log, progress_bar=dict(train_acc=acc))
 
     def validation_step(self, batch, batch_idx):
-        object_pcs, grasp_pcs, task_ids, instance_ids, class_ids, _, labels = batch
+        object_pcs, grasp_pcs, task_ids, instance_ids, class_ids, _, labels = self._unify_dataloader_batches(batch)
 
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
@@ -330,12 +353,44 @@ class BaselineNet(pl.LightningModule):
     def prepare_data(self):
         """ Initializes datasets used for training, validation and testing """
 
-        # TODO: I removed data aug
+        # only used with SGNTaskGrasp dataloader
+        train_transforms = transforms.Compose(
+            [
+                d_utils.PointcloudGraspToTensor(),
+                d_utils.PointcloudGraspScale(),
+                d_utils.PointcloudGraspRotate(axis=np.array([1.0, 0.0, 0.0])),
+                d_utils.PointcloudGraspRotatePerturbation(),
+                d_utils.PointcloudGraspRotate(axis=np.array([0.0, 1.0, 0.0])),
+                d_utils.PointcloudGraspRotatePerturbation(),
+                d_utils.PointcloudGraspRotate(axis=np.array([0.0, 0.0, 1.0])),
+                d_utils.PointcloudGraspRotatePerturbation(),
+                d_utils.PointcloudGraspTranslate(),
+                d_utils.PointcloudGraspJitter(),
+                d_utils.PointcloudGraspRandomInputDropout(),
+            ]
+        )
 
         if self.cfg.dataset_class == 'BaselineData':
             self.train_dset = BaselineData(
                 self.cfg.num_points,
                 #transforms=train_transforms,
+                train=1,
+                base_dir=self.cfg.base_dir,
+                folder_dir=self.cfg.folder_dir,
+                normal=self.cfg.model.use_normal,
+                tasks=TASKS,
+                map_obj2class=self.name2wn,
+                class_list=self._class_list,
+                split_mode=self.cfg.split_mode,
+                split_idx=self.cfg.split_idx,
+                split_version=self.cfg.split_version,
+                pc_scaling=self.cfg.pc_scaling,
+                use_task1_grasps=self.cfg.use_task1_grasps
+            )
+        elif self.cfg.dataset_class == 'SGNTaskGrasp':
+            self.train_dset = SGNTaskGrasp(
+                self.cfg.num_points,
+                transforms=train_transforms,
                 train=1,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
@@ -356,6 +411,23 @@ class BaselineNet(pl.LightningModule):
             self.val_dset = BaselineData(
                 self.cfg.num_points,
                 #transforms=train_transforms,
+                train=2,
+                base_dir=self.cfg.base_dir,
+                folder_dir=self.cfg.folder_dir,
+                normal=self.cfg.model.use_normal,
+                tasks=TASKS,
+                map_obj2class=self.name2wn,
+                class_list=self._class_list,
+                split_mode=self.cfg.split_mode,
+                split_idx=self.cfg.split_idx,
+                split_version=self.cfg.split_version,
+                pc_scaling=self.cfg.pc_scaling,
+                use_task1_grasps=self.cfg.use_task1_grasps
+            )
+        elif self.cfg.dataset_class == 'SGNTaskGrasp':
+            self.val_dset = SGNTaskGrasp(
+                self.cfg.num_points,
+                transforms=train_transforms,
                 train=2,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
