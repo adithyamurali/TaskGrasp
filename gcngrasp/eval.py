@@ -249,7 +249,7 @@ def main(cfg, save=False, visualize=False, experiment_dir=None):
                 logits = logits.squeeze()
 
             elif cfg.algorithm_class == 'Baseline':
-                object_pcs, grasp_pcs, tasks, instances, classes, grasps, labels = batch
+                object_pcs, grasp_pcs, tasks, instances, classes, grasps, labels = model._unify_dataloader_batches(batch)
 
                 object_pcs = object_pcs.type(torch.cuda.FloatTensor)
                 grasp_pcs = grasp_pcs.to(DEVICE)
@@ -346,7 +346,7 @@ def main(cfg, save=False, visualize=False, experiment_dir=None):
 
                 for i in range(pc.shape[0]):
                     pc_i = pc[i, :, :]
-                    if cfg.dataset_class != 'BaselineData':
+                    if cfg.algorithm_class != 'Baseline':
                         pc_i = pc_i[np.where(pc_i[:, 3] == 0), :3].squeeze(0)
                     pc_color_i = pc_color[i, :, :3]
                     pc_i = np.concatenate([pc_i, pc_color_i], axis=1)

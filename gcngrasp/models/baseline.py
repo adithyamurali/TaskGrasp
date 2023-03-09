@@ -32,7 +32,7 @@ import numpy as np
 class PCAutoEncoder(nn.Module):
     """Downsample and then upsample point cloud."""
 
-    def __init__(self, in_dim=3, out_dim=60, depth=2,
+    def __init__(self, in_dim=0, out_dim=60, depth=2,
                  mlp_last_dims=[128, 256, 256],
                  mlp_hid_dims=[64, 128, 128],
                  npoint_list=[512, 256, 128]):
@@ -232,6 +232,9 @@ class BaselineNet(pl.LightningModule):
         pointcloud = pointcloud.float()
         grasp_xyz = grasp_xyz.float()
 
+        # don't use color
+        pointcloud = pointcloud[..., :3]
+
         grasp_tokens = self.grasp_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)
         grasp_pos = self.relative_position_encoding(grasp_xyz)
 
@@ -264,7 +267,7 @@ class BaselineNet(pl.LightningModule):
             # remove latent indicator
             grasp_pc = grasp_pc[:, :, :3]
             object_xyz = object_xyz[:, :, :3]
-            object_pc = torch.cat([object_xyz, pc_color.float()], dim=-1)
+            object_pc = torch.cat([object_xyz.float(), pc_color.float()], dim=-1)
 
             return object_pc, grasp_pc, task_id, instance_id, class_id, grasp, label
         else:
@@ -366,7 +369,7 @@ class BaselineNet(pl.LightningModule):
                 d_utils.PointcloudGraspRotatePerturbation(),
                 d_utils.PointcloudGraspTranslate(),
                 d_utils.PointcloudGraspJitter(),
-                d_utils.PointcloudGraspRandomInputDropout(),
+                # d_utils.PointcloudGraspRandomInputDropout(),
             ]
         )
 
@@ -390,7 +393,7 @@ class BaselineNet(pl.LightningModule):
         elif self.cfg.dataset_class == 'SGNTaskGrasp':
             self.train_dset = SGNTaskGrasp(
                 self.cfg.num_points,
-                transforms=train_transforms,
+                # transforms=train_transforms,
                 train=1,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
@@ -427,7 +430,7 @@ class BaselineNet(pl.LightningModule):
         elif self.cfg.dataset_class == 'SGNTaskGrasp':
             self.val_dset = SGNTaskGrasp(
                 self.cfg.num_points,
-                transforms=train_transforms,
+                # transforms=train_transforms,
                 train=2,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,

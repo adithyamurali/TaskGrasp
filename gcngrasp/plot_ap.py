@@ -18,7 +18,9 @@ def get_results_dir(log_dir, results_dir):
     dirs.reverse()
     for dir in dirs:
         if dir.find(results_dir) >= 0:
-            return dir
+            nested_dirs = os.listdir(os.path.join(log_dir, dir))
+            if "results" in nested_dirs:
+                return dir
     raise FileNotFoundError('Unable to find appropriate folder for experiment {}'.format(results_dir))
 
 def adjust_axes(r, t, fig, axes):

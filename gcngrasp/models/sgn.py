@@ -157,7 +157,7 @@ class SemanticGraspNet(pl.LightningModule):
             logits: binary classification logits
         """
 
-        xyz, features = self._break_up_pc(pointcloud)
+        xyz, features = self._break_up_pc(pointcloud.float())
 
         for module in self.SA_modules:
             xyz, features = module(xyz, features)
@@ -333,7 +333,7 @@ class SemanticGraspNet(pl.LightningModule):
         if self.cfg.dataset_class == 'SGNTaskGrasp':
             self.train_dset = SGNTaskGrasp(
                 self.cfg.num_points,
-                transforms=train_transforms,
+                #transforms=train_transforms,
                 train=1,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
@@ -382,7 +382,7 @@ class SemanticGraspNet(pl.LightningModule):
         if self.cfg.dataset_class == 'SGNTaskGrasp':
             self.val_dset = SGNTaskGrasp(
                 self.cfg.num_points,
-                transforms=train_transforms,
+                #transforms=train_transforms,
                 train=2,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
