@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import einops
+import numpy as np
 from gcngrasp.data.SGNLoader import SGNTaskGrasp
 from pointnet2.pointnet2_modules import PointnetSAModuleVotes
 
@@ -19,15 +20,11 @@ from pointnet2_modules import PointnetFPModule, PointnetSAModule, PointnetSAModu
 
 from data.Dataloader import BaselineData
 from data.data_specification import TASKS, TASKS_SG14K
-from .layers import RelativeCrossAttentionLayer, CrossAttentionLayer, FeedforwardLayer
+from .layers import RelativeCrossAttentionLayer, FeedforwardLayer
 from .position_encodings import RotaryPositionEncoding3D
-from utils.splits import get_ot_pairs_taskgrasp
 from utils.eval_metrics import APMetrics
 import data.data_utils as d_utils
 
-from sklearn.metrics import average_precision_score
-from collections import defaultdict
-import numpy as np
 
 class PCAutoEncoder(nn.Module):
     """Downsample and then upsample point cloud."""
@@ -206,8 +203,11 @@ class BaselineNet(pl.LightningModule):
             nn.Linear(self.cfg.embedding_size, 1)
         )
 
-        _, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'),'rb'))
-        self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'),'rb')) if self.cfg.use_class_list else list(self.name2wn.values())
+        _, _, _, self.name2wn = pickle.load(open(os.path.join(self.cfg.base_dir, self.cfg.folder_dir, 'misc.pkl'), 'rb'))
+        if self.cfg.use_class_list:
+            self._class_list = pickle.load(open(os.path.join(self.cfg.base_dir, 'class_list.pkl'), 'rb'))
+        else:
+            self._class_list = list(self.name2wn.values())
 
         task_vocab_size = len(TASKS)
         self.task_embedding_learned = nn.Embedding(task_vocab_size, self.cfg.embedding_size)
@@ -260,6 +260,7 @@ class BaselineNet(pl.LightningModule):
             fused_pc_xyz, pc_color, task_id, class_id, instance_id, grasp, label = batch
             grasp_pc = fused_pc_xyz[:, -7:, :]
             object_xyz = fused_pc_xyz[:, :-7, :]
+
             # santity check that we split the pointclouds in the right way
             assert((grasp_pc[:, :, -1] == 1).all())
             assert((object_xyz[:, :, -1] == 0).all())
@@ -295,12 +296,8 @@ class BaselineNet(pl.LightningModule):
         logits = self.forward(object_pcs, grasp_pcs, task_ids)
         logits = logits.squeeze()
 
-        #try:
         loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
-        #except ValueError:
-        #    if labels.type(torch.cuda.FloatTensor).shape[0] == 1:
-        #        logits = logits.unsqueeze(-1)
-        #        loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.cuda.FloatTensor))
+
         probs = torch.sigmoid(logits)
         pred = torch.round(probs)
         correct = (pred == labels).float()
@@ -319,7 +316,10 @@ class BaselineNet(pl.LightningModule):
         results = []
         for i in range(len(outputs)):
             for j in range(outputs[i]["labels"].shape[0]):
-                results.append({key: outputs[i][key][j] for key in ["labels", "probs", "task_ids", "instance_ids", "class_ids"]})
+                results.append({
+                    key: outputs[i][key][j]
+                    for key in ["labels", "probs", "task_ids", "instance_ids", "class_ids"]
+                })
         for x in results:
             x["instance_ids"] = self.val_dset.get_instance_from_id(x["instance_ids"])
             x["task_ids"] = self.val_dset.get_task_from_id(x["task_ids"])
@@ -333,13 +333,6 @@ class BaselineNet(pl.LightningModule):
         )
 
         return reduced_outputs
-
-    def print_debug(self):
-        #print(self.query_embedding.weight.grad)
-        #print(self.grasp_embedding.weight.grad)
-        #print(self.attention_layers.points_ffw_layers[0].linear1.weight.grad)
-        print(self.debug_ffw.weight)
-        print(self.debug_ffw.weight.grad)
 
     def configure_optimizers(self):
         # TODO: pruned some fancy scheduling
@@ -376,7 +369,7 @@ class BaselineNet(pl.LightningModule):
         if self.cfg.dataset_class == 'BaselineData':
             self.train_dset = BaselineData(
                 self.cfg.num_points,
-                #transforms=train_transforms,
+                transforms=train_transforms if self.cfg.data_augmentations else None,
                 train=1,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
@@ -393,7 +386,7 @@ class BaselineNet(pl.LightningModule):
         elif self.cfg.dataset_class == 'SGNTaskGrasp':
             self.train_dset = SGNTaskGrasp(
                 self.cfg.num_points,
-                # transforms=train_transforms,
+                transforms=train_transforms if self.cfg.data_augmentations else None,
                 train=1,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
@@ -413,7 +406,7 @@ class BaselineNet(pl.LightningModule):
         if self.cfg.dataset_class == 'BaselineData':
             self.val_dset = BaselineData(
                 self.cfg.num_points,
-                #transforms=train_transforms,
+                transforms=None,
                 train=2,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
@@ -430,7 +423,7 @@ class BaselineNet(pl.LightningModule):
         elif self.cfg.dataset_class == 'SGNTaskGrasp':
             self.val_dset = SGNTaskGrasp(
                 self.cfg.num_points,
-                # transforms=train_transforms,
+                transforms=None,
                 train=2,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,

@@ -22,11 +22,13 @@ from data.data_specification import TASKS, TASKS_SG14K
 import data.data_utils as d_utils
 from utils.eval_metrics import APMetrics
 
+
 def set_bn_momentum_default(bn_momentum):
     def fn(m):
         if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
             m.momentum = bn_momentum
     return fn
+
 
 class BNMomentumScheduler(lr_sched.LambdaLR):
     def __init__(self, model, bn_lambda, last_epoch=-1, setter=set_bn_momentum_default):
@@ -55,6 +57,7 @@ class BNMomentumScheduler(lr_sched.LambdaLR):
     def load_state_dict(self, state):
         self.last_epoch = state["last_epoch"]
         self.step(self.last_epoch)
+
 
 class SemanticGraspNet(pl.LightningModule):
     def __init__(self, cfg):
@@ -333,7 +336,7 @@ class SemanticGraspNet(pl.LightningModule):
         if self.cfg.dataset_class == 'SGNTaskGrasp':
             self.train_dset = SGNTaskGrasp(
                 self.cfg.num_points,
-                #transforms=train_transforms,
+                transforms=train_transforms if self.cfg.data_augmentations else None,
                 train=1,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
@@ -350,7 +353,7 @@ class SemanticGraspNet(pl.LightningModule):
         elif self.cfg.dataset_class == 'SG14K':
             self.train_dset = SG14K(
                 self.cfg.num_points,
-                transforms=train_transforms,
+                transforms=train_transforms if self.cfg.data_augmentations else None,
                 train=1,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
@@ -382,7 +385,7 @@ class SemanticGraspNet(pl.LightningModule):
         if self.cfg.dataset_class == 'SGNTaskGrasp':
             self.val_dset = SGNTaskGrasp(
                 self.cfg.num_points,
-                #transforms=train_transforms,
+                transforms=None,
                 train=2,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,
@@ -399,7 +402,7 @@ class SemanticGraspNet(pl.LightningModule):
         elif self.cfg.dataset_class == 'SG14K':
             self.val_dset = SG14K(
                 self.cfg.num_points,
-                transforms=train_transforms,
+                transforms=None,
                 train=2,
                 base_dir=self.cfg.base_dir,
                 folder_dir=self.cfg.folder_dir,

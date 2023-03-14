@@ -25,8 +25,9 @@ _C.weighted_sampling = True
 _C.use_class_list = True
 _C.pretraining_mode = 0  # This is just for pointnet layers. 0 for no pretraining, 1 for loading pretrained weights
 _C.pretrained_weight_file = ''
-_C.embedding_mode = 0 # 0 for random initialization, 1 for finetuning pretrained weights, 2 for loading and freezing pretrained weights
+_C.embedding_mode = 0  # 0 for random initialization, 1 for finetuning pretrained weights, 2 for loading and freezing pretrained weights
 _C.embedding_model = 'numberbatch'
+_C.data_augmentations = 0  # 0 for no data augmentations, 1 for data augmentations
 
 # To be overwritten in config file
 _C.num_attn_layers = 256
@@ -47,17 +48,17 @@ _C.model = CN()
 _C.model.use_xyz = True
 _C.model.use_normal = False
 
+# Optimizer configs
 _C.optimizer = CN()
 _C.optimizer.lr_decay = 0.7
-#_C.optimizer.lr = 1e-3
 _C.optimizer.lr = 1e-3
-
 _C.optimizer.decay_step = 2e4
 _C.optimizer.bn_momentum = 0.5
 _C.optimizer.bnm_decay =0.5
 _C.optimizer.weight_decay = 0.0
 _C.optimizer.lr_clip = 1e-5
 _C.optimizer.bnm_clip = 1e-2
+
 
 def get_cfg_defaults():
     """Get a yacs CfgNode object with default values for my_project."""

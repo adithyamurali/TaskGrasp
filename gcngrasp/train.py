@@ -2,15 +2,15 @@ import argparse
 import os
 import copy
 import pytorch_lightning as pl
+from pytorch_lightning.loggers import WandbLogger
 import torch
-from pytorch_lightning.loggers import TensorBoardLogger
+import wandb
 
 from models.sgn import SemanticGraspNet
 from models.gcn import GCNGrasp
 from models.baseline import BaselineNet
 from config import get_cfg_defaults
 
-import torch.nn.functional as F
 
 def get_timestamp():
     import datetime
@@ -24,9 +24,39 @@ def get_timestamp():
     return day_month_year
 
 
-def main(cfg):
+def load_cfg(args):
+    cfg = get_cfg_defaults()
 
-    # TODO: replace this with getattr
+    if args.cfg_file != '':
+        if os.path.exists(args.cfg_file):
+            cfg.merge_from_file(args.cfg_file)
+        else:
+            raise FileNotFoundError(args.cfg_file)
+
+    if cfg.base_dir != '':
+        if not os.path.exists(cfg.base_dir):
+            raise FileNotFoundError(
+                'Provided base dir {} not found'.format(
+                    cfg.base_dir))
+    else:
+        assert cfg.base_dir == ''
+        cfg.base_dir = os.path.join(os.path.dirname(__file__), '../data')
+
+    if torch.cuda.is_available():
+        print('Cuda is available, make sure you are training on GPU')
+
+    if args.gpus == -1:
+        args.gpus = [0, ]
+    cfg.gpus = args.gpus
+
+    if args.batch_size > -1:
+        cfg.batch_size = args.batch_size
+
+    cfg.freeze()
+    return cfg
+
+
+def train(cfg, args):
     if cfg.algorithm_class == 'SemanticGraspNet':
         model = SemanticGraspNet(cfg)
     elif cfg.algorithm_class == 'GCNGrasp':
@@ -37,6 +67,8 @@ def main(cfg):
         raise ValueError('Unknown class name {}'.format(cfg.algorithm_class))
 
     if cfg.pretraining_mode == 1:
+        # Load pretrained PointNet layers
+
         weight_file = os.path.join(cfg.log_dir, cfg.pretrained_weight_file)
         if not os.path.exists(weight_file):
             raise FileNotFoundError(
@@ -45,7 +77,6 @@ def main(cfg):
         pretrained_dict = torch.load(weight_file)['state_dict']
         model_dict = model.state_dict()
 
-        # Copy over weights of PointNet Layers
         layers_updated = []
         for k in model_dict.keys():
             if k.find('SA_modules') >= 0 and (
@@ -75,28 +106,16 @@ def main(cfg):
     if len(all_gpus) == 1:
         torch.cuda.set_device(all_gpus[0])
 
-    # model.prepare_data()
-    # data = model.train_dataloader()
-    # device = torch.device(all_gpus[0])
-    # model = model.to(device)
-    # optimizer = model.configure_optimizers()
-    # for e in range(20):
-    #     print("start epoch", e)
-    #     object_pcs, grasp_pcs, labels = next(iter(data))
-    #     res = model(object_pcs.to(device), grasp_pcs.to(device))
-    #     print("res:", res)
-    #     loss = F.binary_cross_entropy_with_logits(res[:, 0], labels.type(torch.cuda.FloatTensor))
-    #     print("loss", loss)
-    #     model.print_debug()
-    #     loss.backward()
-    #     model.print_debug()
-    #     #opt = model.configure_optimizers()
-    #     optimizer.step()
-    #     model.print_debug()
-    #     optimizer.zero_grad()
-    # return
+    wandb_logger = WandbLogger(
+        project="analogical_grasping",
+        name=args.run_name,
+    )
+    # print(type(cfg))
+    # raise NotImplementedError
+    wandb_logger.experiment.config.update(dict(cfg))
 
     trainer = pl.Trainer(
+        logger=wandb_logger,
         gpus=list(cfg.gpus),
         max_epochs=cfg.epochs,
         early_stop_callback=early_stop_callback,
@@ -106,8 +125,9 @@ def main(cfg):
     )
     trainer.fit(model)
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="GCN training")
+    parser = argparse.ArgumentParser(description="Train")
     parser.add_argument(
         '--cfg_file',
         help='yaml file in YACS config format to override default configs',
@@ -115,36 +135,9 @@ if __name__ == "__main__":
         type=str)
     parser.add_argument('--gpus', nargs='+', default=-1, type=int)
     parser.add_argument('--batch_size', default=-1, type=int)
-
+    parser.add_argument('--run_name', default="run", type=str)
     args = parser.parse_args()
 
-    cfg = get_cfg_defaults()
+    cfg = load_cfg(args)
 
-    if args.cfg_file != '':
-        if os.path.exists(args.cfg_file):
-            cfg.merge_from_file(args.cfg_file)
-        else:
-            raise FileNotFoundError(args.cfg_file)
-
-    if cfg.base_dir != '':
-        if not os.path.exists(cfg.base_dir):
-            raise FileNotFoundError(
-                'Provided base dir {} not found'.format(
-                    cfg.base_dir))
-    else:
-        assert cfg.base_dir == ''
-        cfg.base_dir = os.path.join(os.path.dirname(__file__), '../data')
-
-    if torch.cuda.is_available():
-        print('Cuda is available, make sure you are training on GPU')
-
-    if args.gpus == -1:
-        args.gpus = [0, ]
-    cfg.gpus = args.gpus
-
-    if args.batch_size > -1:
-        cfg.batch_size = args.batch_size
-
-    cfg.freeze()
-    print(cfg)
-    main(cfg)
+    train(cfg, args)

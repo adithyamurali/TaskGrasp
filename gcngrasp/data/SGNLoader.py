@@ -1,20 +1,9 @@
 import os
-import copy
 import sys
-import pickle
 import time
-import os.path as osp
-import shlex
-import shutil
-import subprocess
-
-#import lmdb
-#import msgpack_numpy
 import numpy as np
-import torch
 import torch.utils.data as data
 import tqdm
-from collections import defaultdict
 
 BASE_DIR = os.path.dirname(__file__)
 sys.path.append(os.path.join(BASE_DIR, '../../'))
@@ -22,8 +11,8 @@ from utils.splits import get_split_data, parse_line, get_ot_pairs_taskgrasp
 from visualize import draw_scene, get_gripper_control_points
 from geometry_utils import regularize_pc_point_count
 
+
 def pc_normalize(pc, grasp=None, pc_scaling=True):
-    l = pc.shape[0]
     centroid = np.mean(pc, axis=0)
     pc = pc - centroid
     if grasp is not None:
