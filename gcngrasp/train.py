@@ -4,7 +4,6 @@ import copy
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 import torch
-import wandb
 
 from models.sgn import SemanticGraspNet
 from models.gcn import GCNGrasp
@@ -51,6 +50,9 @@ def load_cfg(args):
 
     if args.batch_size > -1:
         cfg.batch_size = args.batch_size
+
+    cfg.split_idx = args.split_idx
+    cfg.split_mode = args.split_mode
 
     cfg.freeze()
     return cfg
@@ -110,8 +112,6 @@ def train(cfg, args):
         project="analogical_grasping",
         name=args.run_name,
     )
-    # print(type(cfg))
-    # raise NotImplementedError
     wandb_logger.experiment.config.update(dict(cfg))
 
     trainer = pl.Trainer(
@@ -136,6 +136,8 @@ if __name__ == "__main__":
     parser.add_argument('--gpus', nargs='+', default=-1, type=int)
     parser.add_argument('--batch_size', default=-1, type=int)
     parser.add_argument('--run_name', default="run", type=str)
+    parser.add_argument('--split_idx', default=0, type=int)
+    parser.add_argument('--split_mode', default="o", type=str)
     args = parser.parse_args()
 
     cfg = load_cfg(args)
