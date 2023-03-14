@@ -1,0 +1,17 @@
+algorithm_class: Baseline
+base_dir: ''
+dataset_class: SGNTaskGrasp
+embedding_mode: '2'
+embedding_model: numberbatch
+embedding_size: '60'
+folder_dir: taskgrasp
+name: baseline_split_mode_o_split_idx_0_
+pc_scaling: 'True'
+split_idx: 0
+split_mode: o
+split_version: '1'
+use_task1_grasps: 'True'
+weighted_sampling: 'True'
+num_attn_layers: 2
+num_attn_heads: 4
+data_augmentations: 0
